@@ -1,0 +1,22 @@
+# Linux, as your own user (not root). Edit the paths, then:
+#   mkdir -p ~/.config/systemd/user
+#   cp service/forge-office.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now forge-office
+#   loginctl enable-linger "$USER"      # keeps it running when logged out
+[Unit]
+Description=Forge — the office
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/forge
+ExecStart=%h/forge/.venv/bin/forge office --no-browser
+Restart=always
+RestartSec=10
+# Only needed if you want the staff to talk like people.
+# Environment=ANTHROPIC_API_KEY=sk-ant-...
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- macOS. Edit the three paths, then:
+       cp service/com.forge.office.plist ~/Library/LaunchAgents/
+       launchctl load -w ~/Library/LaunchAgents/com.forge.office.plist
+     The office comes back on its own after a reboot or a crash. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.forge.office</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/CHANGE/ME/.venv/bin/forge</string>
+        <string>office</string>
+        <string>--no-browser</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/CHANGE/ME/forge</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- Only needed if you want the staff to talk like people. -->
+        <key>ANTHROPIC_API_KEY</key>
+        <string></string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/CHANGE/ME/forge/.forge/office.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/CHANGE/ME/forge/.forge/office.err.log</string>
+</dict>
+</plist>

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "forge"
+version = "0.1.0"
+description = "A local swarm of earner bots that must pay for themselves."
+requires-python = ">=3.10"
+dependencies = ["reportlab>=4.0", "PyYAML>=6.0", "requests>=2.31", "flask>=3.0"]
+
+[project.optional-dependencies]
+live = ["solders>=0.21", "base58>=2.1"]
+claude = ["anthropic>=0.40"]
+preview = ["pillow>=10.0"]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+forge = "forge.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["forge*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

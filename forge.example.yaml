@@ -1,0 +1,115 @@
+# Forge — a local office of bots that has to pay for itself.
+# Copy this to forge.yaml and edit. Secrets never go in here: anything
+# sensitive is named by the environment variable that holds it.
+
+treasury:
+  # What you are staking. The office is told this is all it gets.
+  seed_usd: 50.00
+  # Stop everything if equity falls this far below the seed.
+  max_drawdown_pct: 40
+  # Never hand this share of the seed to a venture.
+  reserve_pct: 20
+
+office:
+  # auto  = use Claude when ANTHROPIC_API_KEY is set, else the scripted brain
+  # claude / scripted force one or the other.
+  brain: auto
+  model: claude-opus-5
+
+  # How often the staff hold a standup and the ventures get a turn.
+  standup_interval_minutes: 60
+
+  # The survival rule. A venture gets this much rope, then has to show it
+  # earns more than it costs plus min_profit_usd, or it collects a strike.
+  # max_strikes strikes and it is eliminated for good.
+  grace_ticks: 8
+  grace_hours: 24
+  min_profit_usd: 1.00
+  max_strikes: 3
+
+  # The salesman stops production when this many finished things are
+  # sitting in your queue unpublished.
+  backlog_limit: 3
+
+  # Your wallet, shown along the bottom of the office. Paste the public
+  # address from Phantom or wherever you keep it: watch-only is the
+  # recommended setup, and nothing here can move the money.
+  wallet_address: ""
+  # Only set this if you want the trader to place real orders. It is a
+  # solana-keygen style key file and it must hold only what you can lose.
+  wallet_keyfile: ""
+  rpc_url: "https://api.mainnet-beta.solana.com"
+
+  host: "127.0.0.1"
+  port: 8765
+
+ventures:
+  coloringbook:
+    enabled: true
+    interval_minutes: 720
+    # It needs no capital: the art is procedural and the PDFs cost nothing.
+    max_capital_usd: 0
+    options:
+      art_pages: 30
+      trim: "8.5x11"
+      paper: white
+      author: "The Quiet Press"
+      price_usd: 7.99
+      # Leave unset to let the salesman rotate the catalogue.
+      # theme: mandala
+      # Stop after this many books. 0 means keep going.
+      max_books: 0
+      # What you think one book brings in, used only to sort your task list.
+      expected_royalty_usd: 0
+
+  memecoin:
+    enabled: true
+    interval_minutes: 15
+    # The most the treasury will ever put in front of this venture.
+    max_capital_usd: 15.00
+    options:
+      # paper until its own record says otherwise. Read the README before
+      # you change this; it will refuse to go live regardless until the
+      # graduation gate passes.
+      mode: paper
+      i_understand_the_risk: false
+
+      # dexscreener is the live market. synthetic is an offline fake, which
+      # is what the tests and the demo use.
+      source: dexscreener
+
+      # Filters
+      min_liquidity_usd: 15000
+      max_fdv_usd: 5000000
+      min_age_minutes: 20
+      min_volume_5m_usd: 2000
+      min_buy_pressure: 0.55
+
+      # Size
+      max_position_usd: 3.00
+      max_positions: 3
+      max_exposure_usd: 9.00
+
+      # Exits
+      stop_loss_pct: 22
+      take_profit_pct: 45
+      trailing_stop_pct: 18
+      max_hold_minutes: 180
+
+      # Circuit breakers
+      daily_loss_limit_usd: 5.00
+      cooldown_minutes: 10
+
+      # What paper trading must show before real money is even possible.
+      graduation_min_trades: 60
+      graduation_min_days: 14
+
+notify:
+  desktop: true
+  telegram:
+    enabled: false
+    token_env: FORGE_TELEGRAM_TOKEN
+    chat_id_env: FORGE_TELEGRAM_CHAT_ID
+
+workdir: .forge
+out_dir: out

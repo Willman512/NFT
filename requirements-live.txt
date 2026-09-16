@@ -1,0 +1,4 @@
+# Only needed to trade with REAL money (forge memecoin live mode).
+# The rest of Forge runs without these.
+solders>=0.21
+base58>=2.1

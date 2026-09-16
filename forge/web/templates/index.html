@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge — the office</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏢</text></svg>">
+<link rel="stylesheet" href="{{ url_for('static', filename='office.css') }}">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◈</span>
+    <span class="brand-name">Forge</span>
+    <span class="brand-sub">the office</span>
+  </div>
+
+  <div class="tiles" id="tiles">
+    <div class="tile"><span class="tile-label">Equity</span><span class="tile-value" id="t-equity">—</span></div>
+    <div class="tile"><span class="tile-label">Net</span><span class="tile-value" id="t-net">—</span></div>
+    <div class="tile"><span class="tile-label">Uncommitted</span><span class="tile-value" id="t-cash">—</span></div>
+    <div class="tile"><span class="tile-label">Standup</span><span class="tile-value" id="t-cycle">—</span></div>
+  </div>
+
+  <div class="controls">
+    <span class="brainchip" id="brainchip" title="Who is writing the words">—</span>
+    <button id="btn-run" class="btn">Run a standup</button>
+    <button id="btn-toggle" class="btn btn-primary">—</button>
+  </div>
+</header>
+
+<div id="banner" class="banner hidden"></div>
+
+<main class="layout">
+  <section class="floorcol">
+    <div class="sectionhead">
+      <h2>The floor</h2>
+      <p class="hint">Click anyone to talk to them. Del speaks for the office.</p>
+    </div>
+    <div class="floor" id="floor"></div>
+
+    <div class="sectionhead">
+      <h2>Ventures</h2>
+      <p class="hint">Pay for yourself and clear a little profit, or be eliminated.</p>
+    </div>
+    <div class="ventures" id="ventures"></div>
+
+    <div class="sectionhead">
+      <h2>Your desk</h2>
+      <p class="hint">The steps no bot is allowed to do for you.</p>
+    </div>
+    <div class="tasks" id="tasks"></div>
+
+    <div class="sectionhead">
+      <h2>Money in</h2>
+      <p class="hint">When a payout actually lands, tell the books — nothing counts until you do.</p>
+    </div>
+    <form class="incomeform" id="incomeform" autocomplete="off">
+      <select id="income-venture" aria-label="Venture"></select>
+      <input id="income-amount" type="number" step="0.01" min="0.01" placeholder="12.40" aria-label="Amount in dollars">
+      <input id="income-memo" type="text" placeholder="KDP royalty, March" aria-label="Memo">
+      <button class="btn" type="submit">Book it</button>
+    </form>
+  </section>
+
+  <section class="feedcol">
+    <div class="sectionhead">
+      <h2>Activity</h2>
+      <p class="hint" id="feedhint">Everything the office says and decides.</p>
+    </div>
+    <div class="feed" id="feed"></div>
+  </section>
+</main>
+
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-who">
+      <span class="avatar" id="drawer-avatar">🙂</span>
+      <div>
+        <div class="drawer-name" id="drawer-name">—</div>
+        <div class="drawer-title" id="drawer-title">—</div>
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="drawer-close" aria-label="Close">✕</button>
+  </div>
+  <p class="drawer-remit" id="drawer-remit"></p>
+  <div class="thread" id="thread"></div>
+  <form class="composer" id="composer" autocomplete="off">
+    <input id="composer-input" type="text" placeholder="Ask a question…" aria-label="Message">
+    <button class="btn btn-primary" type="submit">Send</button>
+  </form>
+</aside>
+
+<footer class="wallet" id="wallet">
+  <span class="wallet-label">Wallet</span>
+  <span class="wallet-mode" id="w-mode">—</span>
+  <code class="wallet-addr" id="w-addr">not configured</code>
+  <button class="btn btn-ghost btn-sm" id="w-copy" title="Copy address">copy</button>
+  <span class="wallet-bal" id="w-bal">—</span>
+  <span class="wallet-dot" id="w-dot" title="connection"></span>
+  <a class="wallet-link" id="w-link" href="#" target="_blank" rel="noreferrer noopener">explorer ↗</a>
+</footer>
+
+<script src="{{ url_for('static', filename='office.js') }}"></script>
+</body>
+</html>
