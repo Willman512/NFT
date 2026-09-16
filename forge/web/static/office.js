@@ -72,18 +72,182 @@ function renderFloor(data) {
     const foot = node("div", "desk-foot");
     foot.append(node("span", null, latest ? ago(latest.ts) : "idle"), node("span", null, "talk →"));
 
-    desk.append(top, bubble, foot);
+    desk.append(top, bubble);
+    const job = (data.desks || {})[person.key];
+    const doing = node("div", "desk-doing");
+    if (job) {
+      doing.append(node("b", null, job.status === "blocked" ? "waiting on you: " : "on now: "),
+                   node("span", null, job.title));
+    } else {
+      doing.append(node("span", null, "nothing on their desk"));
+    }
+    desk.append(doing, foot);
     desk.addEventListener("click", () => openDrawer(person.key));
     floor.append(desk);
   }
+}
+
+/* -------------------------------------------------------------- ideas */
+const MOOD = { for: "#22c55e", against: "#ef4444", unsure: "#f59e0b" };
+
+function renderIdeas(data) {
+  const wrap = el("ideas");
+  wrap.replaceChildren();
+  if (!data.ideas.length) {
+    wrap.append(node("div", "empty",
+      "Nothing yet. Write an idea above and they will pick it apart for you."));
+    return;
+  }
+
+  for (const idea of data.ideas) {
+    const card = node("button", "idea");
+    const tally = idea.tally || {};
+    const lead = (tally.against > tally.for) ? "against"
+      : (tally.for > 0 ? "for" : "unsure");
+    card.style.setProperty("--mood", MOOD[lead] || "var(--line)");
+
+    const top = node("div", "idea-top");
+    top.append(node("span", "idea-title", idea.title));
+    top.append(node("span", `badge ${idea.status}`, idea.status.replace("_", " ")));
+    card.append(top);
+
+    const meta = node("div", "idea-meta");
+    if (idea.reviews && idea.reviews.length) {
+      const pips = node("span", "stances");
+      for (const r of idea.reviews) pips.append(node("span", `pip ${r.stance}`));
+      meta.append(pips);
+      meta.append(node("span", null,
+        `${tally.for || 0} for · ${tally.against || 0} against · ${tally.unsure || 0} unsure`));
+    } else {
+      meta.append(node("span", null, "not read yet"));
+    }
+
+    const p = idea.progress || {};
+    const total = (p.todo || 0) + (p.doing || 0) + (p.blocked || 0) + (p.done || 0);
+    if (total) {
+      meta.append(node("span", null, `${p.done || 0}/${total} done`
+        + ((p.blocked || 0) ? ` · ${p.blocked} waiting on you` : "")));
+    }
+    meta.append(node("span", null, ago(idea.ts)));
+    card.append(meta);
+
+    if (idea.decision) card.append(node("div", "idea-why", idea.decision));
+
+    card.addEventListener("click", () => openIdea(idea.id));
+    wrap.append(card);
+  }
+}
+
+async function openIdea(ideaId) {
+  const body = el("ideabody");
+  body.replaceChildren(node("div", "empty", "Loading…"));
+  el("ideadrawer").classList.add("open");
+  el("ideadrawer").setAttribute("aria-hidden", "false");
+
+  let idea;
+  try {
+    idea = await api(`/api/ideas/${ideaId}`);
+  } catch (err) {
+    body.replaceChildren(node("div", "empty", err.message));
+    return;
+  }
+
+  el("idea-title").textContent = idea.title;
+  el("idea-status").textContent = idea.status.replace("_", " ");
+  body.replaceChildren();
+
+  const quote = node("section");
+  quote.append(node("div", "blockhead", "As you put it"));
+  quote.append(node("p", "ideaquote", idea.body));
+  body.append(quote);
+
+  if (idea.decision) {
+    const call = node("section");
+    call.append(node("div", "blockhead", "What they decided"));
+    call.append(node("p", "ideaquote", idea.decision));
+    body.append(call);
+  }
+
+  if (idea.reviews.length) {
+    const block = node("section");
+    block.append(node("div", "blockhead", "What each of them said"));
+    for (const r of idea.reviews) {
+      const person = state.staff[r.persona] || { name: r.persona, avatar: "•", colour: "#888" };
+      const card = node("div", "review");
+      card.style.setProperty("--seat", person.colour);
+      const top = node("div", "review-top");
+      top.append(node("span", "avatar", person.avatar),
+                 node("span", "review-who", person.name),
+                 node("span", `chip ${r.stance}`, r.stance));
+      card.append(top, node("div", "review-head", r.headline));
+      if (r.points.length) {
+        const ul = node("ul");
+        for (const point of r.points) ul.append(node("li", null, point));
+        card.append(ul);
+      }
+      if (r.questions.length) {
+        card.append(node("div", "review-qs", "Asking: " + r.questions.join(" · ")));
+      }
+      block.append(card);
+    }
+    body.append(block);
+  }
+
+  if (idea.assignments.length) {
+    const block = node("section");
+    block.append(node("div", "blockhead", "Who has what"));
+    for (const a of idea.assignments) {
+      const person = state.staff[a.owner] || { name: a.owner, avatar: "•" };
+      const job = node("div", `job ${a.status}`);
+      const top = node("div", "job-top");
+      top.append(node("span", "avatar", person.avatar),
+                 node("span", "job-title", a.title),
+                 node("span", `chip ${a.status === "done" ? "for" : (a.status === "blocked" ? "unsure" : "")}`,
+                      a.status));
+      top.append(node("span", "job-owner", person.name));
+      job.append(top);
+      for (const note of a.notes) job.append(node("div", "job-note", note));
+
+      if (a.status === "blocked" && a.blocked_on === "you") {
+        const form = node("form", "answerbox");
+        const input = node("input");
+        input.placeholder = "Answer them…";
+        input.setAttribute("aria-label", "Your answer");
+        const send = node("button", "btn btn-sm btn-primary", "Reply");
+        send.type = "submit";
+        form.append(input, send);
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (!input.value.trim()) return;
+          send.disabled = true;
+          try {
+            await api(`/api/assignments/${a.id}/answer`,
+              { method: "POST", body: JSON.stringify({ text: input.value.trim() }) });
+            await openIdea(ideaId);
+            refresh();
+          } catch (err) { banner(err.message); send.disabled = false; }
+        });
+        job.append(form);
+      }
+      block.append(job);
+    }
+    body.append(block);
+  }
+}
+
+function closeIdea() {
+  el("ideadrawer").classList.remove("open");
+  el("ideadrawer").setAttribute("aria-hidden", "true");
 }
 
 /* ----------------------------------------------------------- ventures */
 function renderVentures(data) {
   const wrap = el("ventures");
   wrap.replaceChildren();
+  // Most offices have none; an empty heading is just noise.
+  el("ventures-head").classList.toggle("hidden", !data.ventures.length);
   if (!data.ventures.length) {
-    wrap.append(node("div", "empty", "No ventures configured."));
+    el("income-venture").replaceChildren();
     return;
   }
   for (const v of data.ventures) {
@@ -320,6 +484,7 @@ async function refresh() {
   try {
     const data = await api("/api/state");
     renderHeader(data);
+    renderIdeas(data);
     renderFloor(data);
     renderVentures(data);
     renderTasks(data);
@@ -344,9 +509,37 @@ el("btn-toggle").addEventListener("click", async () => {
   refresh();
 });
 
+el("idea-close").addEventListener("click", closeIdea);
+
+el("pitchform").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const box = el("pitch-body");
+  const body = box.value.trim();
+  if (!body) { banner("Write the idea first."); return; }
+  const button = e.target.querySelector("button");
+  button.disabled = true;
+  el("pitch-hint").textContent = "Taking it to them…";
+  try {
+    await api("/api/ideas", { method: "POST", body: JSON.stringify({ body }) });
+    box.value = "";
+    el("pitch-hint").textContent = "In. They are reading it now.";
+    banner(null);
+    setTimeout(refresh, 700);
+  } catch (err) {
+    banner(err.message);
+    el("pitch-hint").textContent = "The more concrete, the more use they are.";
+  } finally {
+    button.disabled = false;
+  }
+});
+
 el("drawer-close").addEventListener("click", closeDrawer);
 el("composer").addEventListener("submit", send);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  closeDrawer();
+  closeIdea();
+});
 
 el("w-copy").addEventListener("click", async () => {
   const addr = el("w-addr").textContent;

@@ -8,11 +8,28 @@ from forge.staff.office import Office
 from forge.staff.roles import PERSONAS, STANDUP_ORDER
 
 
-def test_everyone_speaks_at_a_standup(office):
+def test_everyone_speaks_when_an_idea_lands(office):
+    office.propose("Sell printable wedding checklists on Etsy for $8.")
     report = office.standup(force=True)
     who = {r["persona"] for r in report.remarks}
-    assert {"researcher", "salesman", "manager", "maker"} <= who
-    assert report.ran, "nothing actually ran"
+    assert {"researcher", "salesman", "banker", "maker", "manager"} <= who
+
+
+def test_an_empty_office_says_so_rather_than_inventing_work(make_cfg):
+    from forge.staff.office import Office
+
+    office = Office(make_cfg(ventures={}))
+    try:
+        report = office.standup(force=True)
+        assert report.ran == [] and report.vetted == []
+        assert any("Nothing on the board" in r["text"] for r in report.remarks)
+    finally:
+        office.close()
+
+
+def test_ventures_still_run_when_configured(office):
+    report = office.standup(force=True)
+    assert set(report.ran) == {"coloringbook", "memecoin"}
 
 
 def test_dry_run_decides_but_does_not_execute(office):
@@ -22,26 +39,7 @@ def test_dry_run_decides_but_does_not_execute(office):
     assert any(r["persona"] == "manager" for r in report.remarks)
 
 
-def test_the_salesman_stops_production_when_the_queue_backs_up(make_cfg):
-    office = Office(make_cfg(backlog_limit=2))
-    try:
-        for _ in range(4):
-            report = office.standup(force=True)
-        assert "coloringbook" in report.blocked
-        assert "waiting on you" in report.blocked["coloringbook"]
-    finally:
-        office.close()
-
-
-def test_the_salesman_rotates_the_catalogue(office):
-    themes = []
-    for _ in range(3):
-        office.standup(force=True)
-        themes.append(office.ledger.get_state("venture:coloringbook:theme_hint"))
-    assert len(set(themes)) == 3, f"the same theme came round too soon: {themes}"
-
-
-def test_the_book_venture_obeys_the_salesmans_theme(office):
+def test_the_book_venture_obeys_a_theme_hint(office):
     office.ledger.set_state("venture:coloringbook:theme_hint", "mazes")
     office.ledger.set_state("venture:coloringbook:price_hint", "9.99")
     office.orch.run_cycle(force=True, only={"coloringbook"})

@@ -24,6 +24,7 @@ log = get_logger("staff.brain")
 #: Short replies by design; these are desk conversations, not essays.
 CHAT_MAX_TOKENS = 700
 REMARK_MAX_TOKENS = 300
+REVIEW_MAX_TOKENS = 900
 DEFAULT_MODEL = "claude-opus-5"
 
 
@@ -49,6 +50,20 @@ class Brain(ABC):
         history: list[dict[str, str]],
     ) -> str:
         """Answer the user, in character, grounded in ``context``."""
+
+    def review(
+        self,
+        persona: Persona,
+        idea_text: str,
+        scripted: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Form an opinion on an idea.
+
+        ``scripted`` is the office's own deterministic reading, and it is
+        the floor: a brain that cannot do better returns it unchanged.
+        """
+        return scripted
 
 
 # ----------------------------------------------------------------------
@@ -108,6 +123,47 @@ class ScriptedBrain(Brain):
 
     def _render_result(self, persona: Persona, s: dict) -> str:
         return s["summary"]
+
+    # -- ideas ---------------------------------------------------------
+    @staticmethod
+    def _short(title: str, limit: int = 46) -> str:
+        """Feed lines quote the idea constantly; a whole sentence is too much."""
+        title = title.strip().rstrip(".")
+        return title if len(title) <= limit else title[: limit - 1].rstrip() + "…"
+
+    def _render_review(self, persona: Persona, s: dict) -> str:
+        lead = {"for": "I'm for it", "against": "I'm against it", "unsure": "I'm not sure yet"}
+        text = (f"On “{self._short(s['idea'])}” — "
+                f"{lead.get(s['stance'], 'I have a view')}. {s['headline']}")
+        if s.get("points"):
+            text += " " + s["points"][0]
+        return text
+
+    def _render_call(self, persona: Persona, s: dict) -> str:
+        word = {
+            "accepted": "We're taking it on",
+            "parked": "Parking it for now",
+            "declined": "We're passing on it",
+        }.get(s["status"], s["status"])
+        return f"“{self._short(s['idea'])}”: {word}. {s['reason']}"
+
+    def _render_handout(self, persona: Persona, s: dict) -> str:
+        who = ", ".join(f"{owner} ({n})" for owner, n in s["split"].items())
+        return f"Split “{self._short(s['idea'])}” between {who}. First up: {s['first']}"
+
+    def _render_work(self, persona: Persona, s: dict) -> str:
+        head = s["title"]
+        first_line = (s.get("note") or "").strip().splitlines()
+        tail = f" — {first_line[0]}" if first_line else ""
+        if s["status"] == "blocked":
+            return f"{head}: waiting on {s.get('blocked_on') or 'someone'}.{tail}"
+        if s["status"] == "done":
+            return f"Finished: {head}.{tail}"
+        return f"Working on {head}.{tail}"
+
+    def _render_delivered(self, persona: Persona, s: dict) -> str:
+        return (f"“{self._short(s['idea'])}” is as far as we can take it without you. "
+                f"The brief is at {s['brief']}.")
 
     # -- conversation ---------------------------------------------------
     def reply(
@@ -305,6 +361,55 @@ class ClaudeBrain(Brain):
             log.warning("falling back to the scripted brain for a remark: %s", exc)
             return plain
 
+    def review(
+        self,
+        persona: Persona,
+        idea_text: str,
+        scripted: dict[str, Any],
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Read the idea properly, rather than pattern-matching its words.
+
+        This is where a language model genuinely earns its place: the
+        scripted reviewer can only react to words it recognises, and most
+        ideas are not made of those. The hard limits stay outside this
+        method — whether the office can afford something, and whether it
+        needs a person to look first, are decided from the ledger and the
+        signals, not from anything said here.
+        """
+        system = (
+            f"You are {persona.name}, {persona.title} at a small business the user "
+            f"owns and runs from their own computer.\n\n"
+            f"What you look for in any idea: {persona.lens}\n"
+            f"How you talk: {persona.voice}\n\n"
+            "Someone has brought an idea to the office. Give your honest read of it "
+            "from your own angle only — the others cover theirs.\n\n"
+            "You are open minded by default. The question is never whether the idea is "
+            "perfect, it is what the cheapest version worth trying would be. Say so "
+            "plainly when something will not work, but do not reach for reasons to "
+            "refuse.\n\n"
+            "Reply with JSON and nothing else, in exactly this shape:\n"
+            '{"stance": "for" | "against" | "unsure", '
+            '"headline": "one short sentence", '
+            '"points": ["two to four specific observations"], '
+            '"questions": ["nothing, or up to two questions only the owner can answer"]}\n\n'
+            "Be specific to this idea. Generic advice is worse than nothing.\n\n"
+            f"What the office currently has: {json.dumps(_purse(context))}"
+        )
+        try:
+            raw = self._call(
+                system,
+                [{"role": "user", "content": f"The idea:\n\n{idea_text}"}],
+                REVIEW_MAX_TOKENS,
+            )
+            parsed = _parse_review(raw)
+            if parsed:
+                return parsed
+            log.warning("could not parse a review from the model; using the scripted read")
+        except Exception as exc:  # noqa: BLE001 - vetting must never stall
+            log.warning("falling back to the scripted review: %s", exc)
+        return scripted
+
     def reply(
         self,
         persona: Persona,
@@ -326,6 +431,54 @@ class ClaudeBrain(Brain):
             log.warning("falling back to the scripted brain for a reply: %s", exc)
             plain = self._fallback.reply(persona, question, context, history)
             return f"{plain}\n\n(Answered without the language model: {type(exc).__name__}.)"
+
+
+def _purse(context: dict[str, Any]) -> dict:
+    treasury = context.get("treasury") or {}
+    return {
+        "uncommitted_cents": treasury.get("cash_cents"),
+        "equity_cents": treasury.get("equity_cents"),
+        "open_ideas": len(context.get("ideas") or []),
+    }
+
+
+def _parse_review(raw: str) -> dict[str, Any] | None:
+    """Pull the JSON object out of a reply, tolerantly.
+
+    Models sometimes wrap JSON in a fenced block or a sentence of preamble,
+    so the object is located rather than assumed to be the whole string.
+    """
+    if not raw:
+        return None
+    start, end = raw.find("{"), raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        data = json.loads(raw[start : end + 1])
+    except ValueError:
+        return None
+    if not isinstance(data, dict):
+        return None
+
+    stance = str(data.get("stance", "")).strip().lower()
+    if stance not in {"for", "against", "unsure"}:
+        return None
+    headline = str(data.get("headline", "")).strip()
+    if not headline:
+        return None
+
+    def strings(key: str, limit: int) -> list[str]:
+        value = data.get(key)
+        if not isinstance(value, list):
+            return []
+        return [str(v).strip() for v in value if str(v).strip()][:limit]
+
+    return {
+        "stance": stance,
+        "headline": headline[:240],
+        "points": strings("points", 5),
+        "questions": strings("questions", 3),
+    }
 
 
 def pick_brain(options: dict[str, Any] | None = None) -> Brain:

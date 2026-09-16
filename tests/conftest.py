@@ -18,7 +18,6 @@ def make_config(tmp_path, **overrides) -> Config:
             brain="scripted",
             grace_ticks=overrides.pop("grace_ticks", 1),
             grace_hours=0,
-            backlog_limit=overrides.pop("backlog_limit", 99),
             max_strikes=overrides.pop("max_strikes", 3),
             min_profit_usd=overrides.pop("min_profit_usd", 1.0),
             standup_interval_minutes=1,
@@ -47,6 +46,16 @@ def make_config(tmp_path, **overrides) -> Config:
         setattr(cfg, key, value)
     cfg.validate()
     return cfg
+
+
+@pytest.fixture
+def empty_office(tmp_path):
+    """An office with no ventures at all — the normal starting state."""
+    from forge.staff.office import Office
+
+    off = Office(make_config(tmp_path, ventures={}))
+    yield off
+    off.close()
 
 
 @pytest.fixture

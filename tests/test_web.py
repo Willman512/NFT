@@ -125,3 +125,57 @@ def test_a_failing_standup_is_reported_not_swallowed(client, monkeypatch):
 
 def _boom(*args, **kwargs):
     raise RuntimeError("the office caught fire")
+
+
+# ----------------------------------------------------------------------
+# ideas over HTTP
+# ----------------------------------------------------------------------
+def test_proposing_an_idea_and_reading_it_back(client):
+    posted = client.post("/api/ideas", json={
+        "body": "Sell printable wedding checklists on Etsy for $8."
+    })
+    assert posted.status_code == 201
+    idea_id = posted.get_json()["id"]
+
+    client.service.standup()
+    detail = client.get(f"/api/ideas/{idea_id}").get_json()
+    assert len(detail["reviews"]) == 4
+    assert detail["status"] in {"in_progress", "accepted", "parked"}
+    assert {r["persona"] for r in detail["reviews"]} == {
+        "banker", "salesman", "researcher", "maker"
+    }
+
+
+def test_an_empty_idea_is_refused(client):
+    assert client.post("/api/ideas", json={"body": "   "}).status_code == 400
+    assert client.post("/api/ideas", json={"body": "x" * 9000}).status_code == 400
+
+
+def test_unknown_idea_is_a_404(client):
+    assert client.get("/api/ideas/4242").status_code == 404
+
+
+def test_answering_a_question_over_http(client):
+    client.post("/api/ideas", json={
+        "body": "Sell printable wedding checklists on Etsy for $8."
+    })
+    client.service.standup()
+    client.service.standup()
+
+    blocked = client.service.office.ideas.assignments(status="blocked")
+    assert blocked, "the office should have asked something"
+    ok = client.post(f"/api/assignments/{blocked[0].id}/answer",
+                     json={"text": "Brides, six months out."})
+    assert ok.status_code == 200
+    assert client.post(f"/api/assignments/{blocked[0].id}/answer",
+                       json={"text": ""}).status_code == 400
+    assert client.post("/api/assignments/99999/answer",
+                       json={"text": "hello"}).status_code == 404
+
+
+def test_state_carries_the_board(client):
+    client.post("/api/ideas", json={"body": "Teach piano over video call for $30 an hour."})
+    client.service.standup()
+    data = client.get("/api/state").get_json()
+    assert data["ideas"] and data["ideas"][0]["reviews"]
+    assert set(data["desks"]) >= {"manager", "banker", "maker"}

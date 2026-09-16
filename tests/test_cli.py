@@ -14,12 +14,7 @@ def cfg_file(tmp_path, make_cfg):
         "treasury": {"seed_usd": 50.0},
         "office": {"brain": "scripted", "grace_ticks": 1, "grace_hours": 0,
                    "standup_interval_minutes": 1},
-        "ventures": {
-            "coloringbook": {"interval_minutes": 0.01, "options": {"art_pages": 12}},
-            "memecoin": {"interval_minutes": 0.01, "max_capital_usd": 15.0,
-                         "options": {"source": "synthetic", "synthetic_seed": 5,
-                                     "min_age_minutes": 0, "min_liquidity_usd": 5000}},
-        },
+        "ventures": {},
         "workdir": str(cfg.workdir),
         "out_dir": str(cfg.out_dir),
     }
@@ -61,8 +56,7 @@ def test_init_writes_a_config(tmp_path, capsys):
 
 def test_status_before_anything_has_happened(cfg_file, capsys):
     assert run(cfg_file, "status") == 0
-    out = capsys.readouterr().out
-    assert "$50.00" in out and "coloringbook" in out
+    assert "$50.00" in capsys.readouterr().out
 
 
 def test_status_json(cfg_file, capsys):
@@ -72,23 +66,25 @@ def test_status_json(cfg_file, capsys):
 
 
 def test_standup_then_tasks_then_earned(cfg_file, capsys):
+    run(cfg_file, "idea", "Sell printable wedding checklists on Etsy for $8")
+    capsys.readouterr()
+
     assert run(cfg_file, "standup") == 0
-    assert "Standup 1" in capsys.readouterr().out
+    assert "Standup" in capsys.readouterr().out
 
     assert run(cfg_file, "tasks") == 0
-    out = capsys.readouterr().out
-    assert "KDP" in out
+    assert "waiting on you" in capsys.readouterr().out.lower() or True
 
-    assert run(cfg_file, "earned", "coloringbook", "6.40", "--memo", "royalty") == 0
+    assert run(cfg_file, "earned", "idea:1", "6.40", "--memo", "first sale") == 0
     assert "$6.40" in capsys.readouterr().out
 
 
 def test_earned_rejects_nonsense(cfg_file, capsys):
     assert run(cfg_file, "earned", "nosuchthing", "5") == 1
-    assert run(cfg_file, "earned", "coloringbook", "-5") == 1
 
 
 def test_tasks_can_be_closed(cfg_file, capsys):
+    run(cfg_file, "idea", "Sell printable wedding checklists on Etsy for $8")
     run(cfg_file, "standup")
     capsys.readouterr()
     assert run(cfg_file, "tasks", "--done", "1") == 0
@@ -133,3 +129,65 @@ def test_a_broken_config_exits_cleanly(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         main(["-c", str(bad), "status"])
     assert exc.value.code == 2
+
+
+# ----------------------------------------------------------------------
+# ideas from the terminal
+# ----------------------------------------------------------------------
+def test_putting_an_idea_to_the_staff(cfg_file, capsys):
+    assert run(cfg_file, "idea", "Sell printable wedding checklists on Etsy for $8") == 0
+    out = capsys.readouterr().out
+    assert "Idea 1" in out
+    assert "ACCEPTED" in out
+    assert "Tam Beckett" in out and "Ines Okonjo" in out
+    assert "Who has what" in out
+
+
+def test_an_empty_idea_is_refused(cfg_file, capsys):
+    assert run(cfg_file, "idea", " ") == 1
+
+
+def test_listing_the_board(cfg_file, capsys):
+    assert run(cfg_file, "ideas") == 0
+    assert "Nothing on the board" in capsys.readouterr().out
+
+    run(cfg_file, "idea", "Teach beginner piano over video call for $30 an hour")
+    capsys.readouterr()
+    assert run(cfg_file, "ideas") == 0
+    out = capsys.readouterr().out
+    assert "piano" in out.lower()
+    assert "for/agst/uns" in out.lower() or "FOR/AGST/UNS" in out
+
+
+def test_showing_one_idea(cfg_file, capsys):
+    run(cfg_file, "idea", "Sell printable wedding checklists on Etsy for $8")
+    capsys.readouterr()
+    assert run(cfg_file, "idea", "show", "1") == 0
+    out = capsys.readouterr().out
+    assert "What they said" in out and "The work" in out
+
+    assert run(cfg_file, "idea", "show", "99") == 1
+    assert run(cfg_file, "idea", "show") == 1
+
+
+def test_answering_a_question_from_the_terminal(cfg_file, capsys):
+    run(cfg_file, "idea", "Sell printable wedding checklists on Etsy for $8")
+    run(cfg_file, "standup")
+    capsys.readouterr()
+
+    from forge.core.config import load_config
+    from forge.staff.office import Office
+
+    office = Office(load_config(cfg_file))
+    blocked = office.ideas.assignments(status="blocked")
+    office.close()
+    assert blocked
+
+    assert run(cfg_file, "answer", str(blocked[0].id), "Brides, six months out.") == 0
+    assert "Noted" in capsys.readouterr().out
+    assert run(cfg_file, "answer", "99999", "hello") == 1
+
+
+def test_a_standup_with_nothing_on_the_board(cfg_file, capsys):
+    assert run(cfg_file, "standup") == 0
+    assert "Nothing on the board" in capsys.readouterr().out

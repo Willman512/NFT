@@ -277,6 +277,50 @@ def create_app(cfg: Config, service: OfficeService | None = None) -> Flask:
         return (jsonify({"ok": True, "status": status}) if ok
                 else (jsonify({"error": "no such task"}), 404))
 
+    @app.post("/api/ideas")
+    def api_propose():
+        body = (request.get_json(silent=True) or {}).get("body", "").strip()
+        if not body:
+            return jsonify({"error": "an idea needs some words in it"}), 400
+        if len(body) > 8000:
+            return jsonify({"error": "that is too long; give me the short version"}), 400
+        with svc.lock:
+            if svc.office is None:
+                return jsonify({"error": "the office is closed"}), 409
+            idea = svc.office.propose(body)
+        # Vet it now rather than at the next standup: you are standing there.
+        svc.request_standup()
+        return jsonify(idea.to_dict()), 201
+
+    @app.get("/api/ideas/<int:idea_id>")
+    def api_idea(idea_id: int):
+        with svc.lock:
+            idea = svc.office.ideas.idea(idea_id)
+            if idea is None:
+                return jsonify({"error": "no such idea"}), 404
+            return jsonify(json_safe({
+                **idea.to_dict(),
+                "tally": svc.office.ideas.tally(idea_id),
+                "progress": svc.office.ideas.progress(idea_id),
+                "reviews": [r.to_dict() for r in svc.office.ideas.reviews(idea_id)],
+                "assignments": [
+                    a.to_dict() for a in svc.office.ideas.assignments(idea_id=idea_id)
+                ],
+            }))
+
+    @app.post("/api/assignments/<int:assignment_id>/answer")
+    def api_answer(assignment_id: int):
+        text = (request.get_json(silent=True) or {}).get("text", "").strip()
+        if not text:
+            return jsonify({"error": "an answer needs some words in it"}), 400
+        with svc.lock:
+            try:
+                return jsonify(svc.office.answer(assignment_id, text))
+            except KeyError:
+                return jsonify({"error": "no such piece of work"}), 404
+            except ValueError as exc:
+                return jsonify({"error": str(exc)}), 400
+
     @app.post("/api/income")
     def api_income():
         body = request.get_json(silent=True) or {}
@@ -288,12 +332,16 @@ def create_app(cfg: Config, service: OfficeService | None = None) -> Flask:
         if amount <= 0:
             return jsonify({"error": "amount must be positive"}), 400
         with svc.lock:
-            if venture not in svc.office.orch.ventures and venture not in svc.office.ledger.ventures():
-                return jsonify({"error": f"unknown venture {venture!r}"}), 400
+            target = svc.office.resolve_income_target(venture)
+            if target is None:
+                return jsonify({
+                    "error": f"nothing here called {venture!r}",
+                    "options": svc.office.income_targets(),
+                }), 400
             cents = svc.office.record_income(
-                venture, amount, body.get("memo") or "payment received"
+                target, amount, body.get("memo") or "payment received"
             )
-        return jsonify({"ok": True, "cents": cents})
+        return jsonify({"ok": True, "cents": cents, "booked_to": target})
 
     @app.post("/api/venture/<name>/<action>")
     def api_venture(name: str, action: str):

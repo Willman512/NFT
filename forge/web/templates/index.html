@@ -35,14 +35,33 @@
 <main class="layout">
   <section class="floorcol">
     <div class="sectionhead">
+      <h2>Bring them an idea</h2>
+      <p class="hint">Anything. They'll read it, argue about it, and split up the work.</p>
+    </div>
+    <form class="pitch" id="pitchform" autocomplete="off">
+      <textarea id="pitch-body" rows="3" aria-label="Your idea"
+        placeholder="Sell printable wedding checklists on Etsy for $8, generated automatically…"></textarea>
+      <div class="pitch-foot">
+        <span class="hint" id="pitch-hint">The more concrete, the more use they are.</span>
+        <button class="btn btn-primary" type="submit">Put it to them</button>
+      </div>
+    </form>
+
+    <div class="sectionhead">
+      <h2>On the board</h2>
+      <p class="hint">Click an idea to see what each of them said and who has what.</p>
+    </div>
+    <div class="ideas" id="ideas"></div>
+
+    <div class="sectionhead">
       <h2>The floor</h2>
       <p class="hint">Click anyone to talk to them. Del speaks for the office.</p>
     </div>
     <div class="floor" id="floor"></div>
 
-    <div class="sectionhead">
+    <div class="sectionhead hidden" id="ventures-head">
       <h2>Ventures</h2>
-      <p class="hint">Pay for yourself and clear a little profit, or be eliminated.</p>
+      <p class="hint">Anything running on its own schedule. Pay for yourself, or be eliminated.</p>
     </div>
     <div class="ventures" id="ventures"></div>
 
@@ -90,6 +109,20 @@
     <input id="composer-input" type="text" placeholder="Ask a question…" aria-label="Message">
     <button class="btn btn-primary" type="submit">Send</button>
   </form>
+</aside>
+
+<aside class="drawer drawer-wide" id="ideadrawer" aria-hidden="true">
+  <div class="drawer-head">
+    <div class="drawer-who">
+      <span class="avatar" id="idea-badge">💡</span>
+      <div>
+        <div class="drawer-name" id="idea-title">—</div>
+        <div class="drawer-title" id="idea-status">—</div>
+      </div>
+    </div>
+    <button class="btn btn-ghost" id="idea-close" aria-label="Close">✕</button>
+  </div>
+  <div class="ideabody" id="ideabody"></div>
 </aside>
 
 <footer class="wallet" id="wallet">

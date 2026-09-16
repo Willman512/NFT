@@ -86,6 +86,137 @@ def cmd_office(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_idea(args: argparse.Namespace) -> int:
+    """Put something in front of the staff and let them chew on it."""
+    office = _office(args)
+    handed_off = False
+    try:
+        words = list(args.text)
+        if words and words[0] == "show":
+            handed_off = True
+            office.close()
+            if len(words) != 2 or not words[1].isdigit():
+                print('Usage: forge idea show <id>', file=sys.stderr)
+                return 1
+            return cmd_idea_show(argparse.Namespace(**{**vars(args), "id": int(words[1])}))
+
+        body = " ".join(words).strip()
+        if not body:
+            print("Say what the idea is.", file=sys.stderr)
+            return 1
+        idea = office.propose(body)
+        print(f"\nIdea {idea.id}: {idea.title}\n")
+        result = office.vet(idea, office.memory.cycle)
+        print(f"  {result['status'].upper()} — {result['reason']}\n")
+
+        for review in office.ideas.reviews(idea.id):
+            person = roles.PERSONAS.get(review.persona)
+            name = person.name if person else review.persona
+            print(f"  {person.avatar if person else '-'} {name:<14} {review.stance:<8} {review.headline}")
+            for point in review.points:
+                print(f"       - {point}")
+            print()
+
+        assignments = office.ideas.assignments(idea_id=idea.id)
+        if assignments:
+            print("  Who has what:")
+            for a in assignments:
+                mark = {"done": "x", "doing": "~", "blocked": "!", "todo": " "}[a.status]
+                print(f"    [{mark}] {a.owner:<11} {a.title}")
+            print(f"\n  They will work it at the next standup. Watch with:  forge idea show {idea.id}\n")
+        return 0
+    finally:
+        if not handed_off:
+            office.close()
+
+
+def cmd_ideas(args: argparse.Namespace) -> int:
+    office = _office(args)
+    try:
+        ideas = office.ideas.ideas(limit=args.limit)
+        if not ideas:
+            print("Nothing on the board. Add one with:  forge idea \"...\"")
+            return 0
+        rows = []
+        for idea in ideas:
+            tally = office.ideas.tally(idea.id)
+            progress = office.ideas.progress(idea.id)
+            total = sum(progress.values())
+            rows.append([
+                str(idea.id),
+                idea.title[:52],
+                idea.status,
+                f"{tally['for']}/{tally['against']}/{tally['unsure']}",
+                f"{progress['done']}/{total}" if total else "—",
+                str(progress["blocked"]) if progress["blocked"] else "",
+            ])
+        print()
+        print(table(rows, ["id", "idea", "status", "for/agst/uns", "done", "on you"]))
+        print("\nOpen one with:  forge idea show <id>\n")
+        return 0
+    finally:
+        office.close()
+
+
+def cmd_idea_show(args: argparse.Namespace) -> int:
+    office = _office(args)
+    try:
+        idea = office.ideas.idea(args.id)
+        if idea is None:
+            print(f"No idea {args.id}.", file=sys.stderr)
+            return 1
+        print(f"\n{idea.title}")
+        print(f"  {idea.status.replace('_', ' ')} · raised by {idea.source}\n")
+        for line in idea.body.splitlines():
+            print(f"  > {line}")
+        if idea.decision:
+            print(f"\n  Decision: {idea.decision}")
+
+        reviews = office.ideas.reviews(idea.id)
+        if reviews:
+            print("\n  What they said:")
+            for review in reviews:
+                person = roles.PERSONAS.get(review.persona)
+                name = person.name if person else review.persona
+                print(f"    {name:<14} {review.stance:<8} {review.headline}")
+
+        assignments = office.ideas.assignments(idea_id=idea.id)
+        if assignments:
+            print("\n  The work:")
+            for a in assignments:
+                mark = {"done": "x", "doing": "~", "blocked": "!", "todo": " "}[a.status]
+                waiting = f"  (waiting on {a.blocked_on})" if a.blocked_on else ""
+                print(f"    [{mark}] {a.id:>3} {a.owner:<11} {a.title}{waiting}")
+                for note in a.notes:
+                    for line in note.splitlines():
+                        print(f"            {line}")
+            waiting = [a for a in assignments if a.status == "blocked"]
+            if waiting:
+                print(f"\n  Answer one with:  forge answer {waiting[0].id} \"...\"")
+        print()
+        return 0
+    finally:
+        office.close()
+
+
+def cmd_answer(args: argparse.Namespace) -> int:
+    office = _office(args)
+    try:
+        text = " ".join(args.text).strip()
+        try:
+            office.answer(args.id, text)
+        except KeyError:
+            print(f"No piece of work numbered {args.id}.", file=sys.stderr)
+            return 1
+        except ValueError as exc:
+            print(f"{exc}", file=sys.stderr)
+            return 1
+        print(f"Noted against work {args.id}. They will pick it up from there.")
+        return 0
+    finally:
+        office.close()
+
+
 def cmd_standup(args: argparse.Namespace) -> int:
     office = _office(args)
     try:
@@ -200,17 +331,18 @@ def cmd_tasks(args: argparse.Namespace) -> int:
 def cmd_earned(args: argparse.Namespace) -> int:
     office = _office(args)
     try:
-        known = set(office.orch.ventures) | set(office.ledger.ventures())
-        if args.venture not in known:
-            print(f"Unknown venture {args.venture!r}. Known: {', '.join(sorted(known)) or 'none'}",
-                  file=sys.stderr)
+        target = office.resolve_income_target(args.venture)
+        if target is None:
+            options = office.income_targets()
+            print(f"Nothing here called {args.venture!r}. "
+                  f"Try one of: {', '.join(options) or 'nothing yet'}", file=sys.stderr)
             return 1
         if args.amount <= 0:
             print("Amount must be positive.", file=sys.stderr)
             return 1
-        cents = office.record_income(args.venture, args.amount, args.memo)
-        books = office.ledger.books(args.venture)
-        print(f"Booked {cents_to_str(cents)} to {args.venture}.")
+        cents = office.record_income(target, args.amount, args.memo)
+        books = office.ledger.books(target)
+        print(f"Booked {cents_to_str(cents)} to {target}.")
         print(f"It is now at {cents_to_str(books.income)} earned against "
               f"{cents_to_str(books.expense)} spent.")
         return 0
@@ -363,6 +495,22 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("--no-browser", action="store_true")
     q.set_defaults(func=cmd_office)
 
+    # `forge idea show 3` reads better than a separate verb, but argparse
+    # cannot have a subcommand and a greedy positional on the same parser,
+    # so the split happens in cmd_idea instead.
+    q = sub.add_parser("idea", help='put an idea to the staff, or "show <id>"')
+    q.add_argument("text", nargs="+", help="the idea in your own words, or: show <id>")
+    q.set_defaults(func=cmd_idea)
+
+    q = sub.add_parser("ideas", help="what is on the board")
+    q.add_argument("--limit", type=int, default=25)
+    q.set_defaults(func=cmd_ideas)
+
+    q = sub.add_parser("answer", help="answer a question the office put to you")
+    q.add_argument("id", type=int)
+    q.add_argument("text", nargs="+")
+    q.set_defaults(func=cmd_answer)
+
     q = sub.add_parser("standup", help="hold one standup in the terminal")
     q.add_argument("--dry-run", action="store_true", help="decide but do not execute")
     q.set_defaults(func=cmd_standup)
@@ -382,7 +530,7 @@ def build_parser() -> argparse.ArgumentParser:
     q.set_defaults(func=cmd_tasks)
 
     q = sub.add_parser("earned", help="book money that actually arrived")
-    q.add_argument("venture")
+    q.add_argument("venture", metavar="what", help="a venture name, or an idea id")
     q.add_argument("amount", type=float)
     q.add_argument("--memo", default="payment received")
     q.set_defaults(func=cmd_earned)

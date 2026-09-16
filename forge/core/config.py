@@ -81,8 +81,6 @@ class OfficeConfig:
     grace_hours: float = 24.0
     min_profit_usd: float = 1.0
     max_strikes: int = 3
-    #: Finished work waiting on a human before the salesman stops production.
-    backlog_limit: int = 3
     #: The wallet shown along the bottom of the office. Watch-only.
     wallet_address: str = ""
     wallet_keyfile: str = ""
@@ -99,7 +97,6 @@ class OfficeConfig:
             "grace_hours": self.grace_hours,
             "min_profit_usd": self.min_profit_usd,
             "max_strikes": self.max_strikes,
-            "backlog_limit": self.backlog_limit,
             "wallet_address": self.wallet_address,
             "wallet_keyfile": self.wallet_keyfile,
             "rpc_url": self.rpc_url,
@@ -150,8 +147,9 @@ class Config:
         self.office.validate()
         for v in self.ventures.values():
             v.validate()
-        if not self.ventures:
-            raise ConfigError("no ventures configured; nothing would ever run")
+        # No ventures is the normal starting state. The office runs on ideas;
+        # a venture is only what an idea turns into once it needs to run on a
+        # schedule of its own.
 
 
 def _as_dict(value: Any, where: str) -> dict[str, Any]:
@@ -211,14 +209,7 @@ def load_config(path: str | Path | None = None) -> Config:
 
 
 def _validate_or_default(self: Config) -> None:
-    """Defaults carry no ventures, so seed the config with the safe pair."""
-    if not self.ventures:
-        self.ventures = {
-            "coloringbook": VentureConfig(name="coloringbook", interval_minutes=720),
-            "memecoin": VentureConfig(
-                name="memecoin", interval_minutes=15, options={"mode": "paper"}
-            ),
-        }
+    """An office with no ventures is fine — it starts empty and open."""
     self.validate()
 
 

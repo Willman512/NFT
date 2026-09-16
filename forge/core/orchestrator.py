@@ -89,7 +89,7 @@ class Orchestrator:
             venture.validate()
             self.ventures[vc.name] = venture
         if not self.ventures:
-            log.warning("no ventures loaded; the swarm will do nothing")
+            log.debug("no ventures configured; the office runs on ideas alone")
 
     def _ensure_seeded(self) -> None:
         """Post the seed exactly once, no matter how often Forge restarts."""
