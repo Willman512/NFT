@@ -1,10 +1,15 @@
 /* The office, client side. Plain DOM, no framework, no build step —
    it has to keep working on a machine with no network. */
 
+import { Scene } from "./scene.js";
+
 const POLL_MS = 3000;
 
 const el = (id) => document.getElementById(id);
-const state = { staff: {}, openPersona: null, lastFeedId: 0, sending: false };
+const state = {
+  staff: {}, openPersona: null, lastFeedId: 0, sending: false,
+  scene: null, tab: "office",
+};
 
 /* ------------------------------------------------------------ helpers */
 function money(cents) {
@@ -45,45 +50,28 @@ async function api(path, options) {
   return body;
 }
 
-/* -------------------------------------------------------------- floor */
-function renderFloor(data) {
-  const floor = el("floor");
-  floor.replaceChildren();
-  // The manager takes the top of the floor; everyone else lines up beneath.
-  const order = [...data.staff].sort((a, b) =>
-    (a.key === "manager" ? -1 : 0) - (b.key === "manager" ? -1 : 0));
-  for (const person of order) {
+/* -------------------------------------------------------- the office */
+function renderTeam(data) {
+  const wrap = el("team");
+  wrap.replaceChildren();
+  for (const person of data.staff) {
     state.staff[person.key] = person;
-    const latest = data.latest_by_persona[person.key];
-
-    const desk = node("button", person.key === "manager" ? "desk boss" : "desk");
-    desk.style.setProperty("--seat", person.colour);
-    desk.setAttribute("aria-label", `Talk to ${person.name}`);
-
-    const top = node("div", "desk-top");
-    top.append(node("span", "avatar", person.avatar));
-    const who = node("div");
-    who.append(node("div", "desk-name", person.name), node("div", "desk-title", person.title));
-    top.append(who);
-
-    const bubble = node("div", latest ? "bubble" : "bubble quiet",
-      latest ? latest.text : "Nothing to say yet.");
-
-    const foot = node("div", "desk-foot");
-    foot.append(node("span", null, latest ? ago(latest.ts) : "idle"), node("span", null, "talk →"));
-
-    desk.append(top, bubble);
     const job = (data.desks || {})[person.key];
-    const doing = node("div", "desk-doing");
-    if (job) {
-      doing.append(node("b", null, job.status === "blocked" ? "waiting on you: " : "on now: "),
-                   node("span", null, job.title));
-    } else {
-      doing.append(node("span", null, "nothing on their desk"));
-    }
-    desk.append(doing, foot);
-    desk.addEventListener("click", () => openDrawer(person.key));
-    floor.append(desk);
+    const waiting = job && job.status === "blocked";
+
+    const mate = node("button", waiting ? "mate waiting" : "mate");
+    mate.style.setProperty("--seat", person.colour);
+    mate.setAttribute("aria-label", `Talk to ${person.name}, ${person.title}`);
+    mate.append(node("span", "avatar", person.avatar));
+
+    const text = node("div", "mate-text");
+    text.append(node("div", "mate-name", person.name));
+    text.append(node("div", "mate-doing",
+      job ? (waiting ? `waiting on you: ${job.title}` : job.title) : "nothing on their desk"));
+    mate.append(text);
+
+    mate.addEventListener("click", () => openDrawer(person.key));
+    wrap.append(mate);
   }
 }
 
@@ -469,6 +457,10 @@ function renderHeader(data) {
        : (data.seconds_until_next > 0 ? `in ${Math.ceil(data.seconds_until_next / 60)}m` : "due"));
   el("brainchip").textContent = data.brain;
 
+  badge("tab-you-count", (data.tasks || []).length);
+  badge("tab-ideas-count",
+    (data.ideas || []).filter((i) => i.status === "proposed" || i.status === "vetting").length);
+
   const toggle = el("btn-toggle");
   toggle.textContent = data.running ? "Pause the office" : "Start the office";
   toggle.classList.toggle("btn-primary", !data.running);
@@ -485,7 +477,8 @@ async function refresh() {
     const data = await api("/api/state");
     renderHeader(data);
     renderIdeas(data);
-    renderFloor(data);
+    renderTeam(data);
+    state.scene.update(data);
     renderVentures(data);
     renderTasks(data);
     renderFeed(data);
@@ -493,6 +486,26 @@ async function refresh() {
   } catch (err) {
     banner(`Cannot reach the office: ${err.message}`);
   }
+}
+
+/* --------------------------------------------------------------- tabs */
+function showTab(name) {
+  state.tab = name;
+  for (const panel of document.querySelectorAll("[data-panel]")) {
+    panel.hidden = panel.dataset.panel !== name;
+  }
+  for (const tab of document.querySelectorAll(".tab")) {
+    const active = tab.dataset.go === name;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-current", active ? "page" : "false");
+  }
+  window.scrollTo({ top: 0, behavior: "instant" });
+}
+
+function badge(id, count) {
+  const pip = el(id);
+  pip.textContent = count > 99 ? "99+" : String(count);
+  pip.classList.toggle("hidden", !count);
 }
 
 /* --------------------------------------------------------------- wire */
@@ -561,5 +574,24 @@ el("incomeform").addEventListener("submit", async (e) => {
   } catch (err) { banner(err.message); }
 });
 
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.addEventListener("click", () => showTab(tab.dataset.go));
+}
+
+state.scene = new Scene(el("scene"), { onPersonClick: openDrawer });
+showTab("office");
 refresh();
-setInterval(() => { if (!state.sending) refresh(); }, POLL_MS);
+
+/* Poll, but not while the tab is in the background — a phone in your pocket
+   should not be waking up every three seconds. */
+setInterval(() => {
+  if (state.sending || document.hidden) return;
+  refresh();
+}, POLL_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {
+    /* An office that cannot install is still a working office. */
+  });
+}

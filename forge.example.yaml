@@ -38,8 +38,15 @@ office:
   wallet_keyfile: ""
   rpc_url: "https://api.mainnet-beta.solana.com"
 
+  # Leave the host on loopback unless you mean to expose it. Binding
+  # anywhere else turns the door on: a token is then required, and the
+  # office prints a link with it. `forge office --lan` does both for you.
   host: "127.0.0.1"
   port: 8765
+  # Pin the access token if you want a link that never changes. Left empty,
+  # one is generated the first time the office is exposed and kept in the
+  # database. Treat it like a password: it is the key to your office.
+  token: ""
 
 ventures:
   # An office starts empty, and that is the normal state. You bring ideas;

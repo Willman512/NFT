@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Forge">
+  <rect width="512" height="512" rx="112" fill="#12151c"/>
+  <rect x="86" y="104" width="340" height="72" rx="18" fill="#1d2332"/>
+  <rect x="150" y="128" width="96" height="26" rx="6" fill="#2d3c58"/>
+  <rect x="272" y="128" width="96" height="26" rx="6" fill="#2d3c58"/>
+  <ellipse cx="256" cy="330" rx="132" ry="74" fill="#232a38"/>
+  <g fill="#6366f1">
+    <circle cx="256" cy="228" r="34"/>
+    <rect x="222" y="266" width="68" height="60" rx="26"/>
+  </g>
+  <g fill="#0ea5e9">
+    <circle cx="140" cy="352" r="26"/>
+    <rect x="114" y="382" width="52" height="46" rx="20"/>
+  </g>
+  <g fill="#f59e0b">
+    <circle cx="372" cy="352" r="26"/>
+    <rect x="346" y="382" width="52" height="46" rx="20"/>
+  </g>
+</svg>

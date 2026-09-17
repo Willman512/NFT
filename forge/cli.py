@@ -72,15 +72,47 @@ def cmd_init(args: argparse.Namespace) -> int:
 
 
 def cmd_office(args: argparse.Namespace) -> int:
-    from .web import serve
+    from .core.ledger import Ledger
+    from .web import auth, serve
 
     cfg = _config(args)
     setup_logging(cfg.workdir, verbose=args.verbose)
     if args.port:
         cfg.office.port = args.port
-    print(f"The office is at http://{cfg.office.host}:{cfg.office.port}/  (ctrl-c to close)")
+    if args.host:
+        cfg.office.host = args.host
+    elif args.lan:
+        cfg.office.host = "0.0.0.0"
+
+    exposed = not auth.is_loopback(cfg.office.host)
+
+    if args.show_link:
+        with Ledger(cfg.ledger_path) as ledger:
+            token = auth.resolve_token(cfg, ledger)
+        print(auth.link(cfg.office.host, cfg.office.port, token))
+        return 0
+
+    if exposed:
+        with Ledger(cfg.ledger_path) as ledger:
+            token = auth.resolve_token(cfg, ledger)
+        url = auth.link(cfg.office.host, cfg.office.port, token)
+        print()
+        print("  The office is open to your network.")
+        print(f"  {url}")
+        print()
+        print("  Open that on your phone. The link carries the key, so treat it")
+        print("  like one: anyone who has it can talk to your staff and see your")
+        print("  wallet. It is plain HTTP, so it is only as private as the network")
+        print("  you are on — for anywhere else, put it behind a tunnel instead.")
+        print("  See the README, 'Getting to it from anywhere'.")
+        print()
+    else:
+        print(f"  The office is at http://localhost:{cfg.office.port}/")
+        print("  Only this machine can reach it. For your phone: forge office --lan")
+        print()
+
     try:
-        serve(cfg, open_browser=not args.no_browser)
+        serve(cfg, open_browser=not args.no_browser and not exposed)
     except KeyboardInterrupt:
         print("\nClosed.")
     return 0
@@ -492,6 +524,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     q = sub.add_parser("office", help="open the visual office (this is the main one)")
     q.add_argument("--port", type=int)
+    q.add_argument("--lan", action="store_true",
+                   help="let your other devices reach it, with a key in the link")
+    q.add_argument("--host", help="bind to a specific address")
+    q.add_argument("--show-link", action="store_true",
+                   help="print the link with its key and exit")
     q.add_argument("--no-browser", action="store_true")
     q.set_defaults(func=cmd_office)
 

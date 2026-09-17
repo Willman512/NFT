@@ -20,6 +20,7 @@ from typing import Any
 
 from flask import Flask, jsonify, render_template, request
 
+from . import auth
 from ..core.config import Config
 from ..core.log import get_logger
 from ..core.money import usd
@@ -213,6 +214,42 @@ def create_app(cfg: Config, service: OfficeService | None = None) -> Flask:
     )
     svc = service or OfficeService(cfg)
     app.config["FORGE"] = svc
+    with svc.lock:
+        token = auth.resolve_token(cfg, svc.office.ledger)
+    auth.install(app, token)
+
+    @app.get("/healthz")
+    def healthz():  # type: ignore[unused-ignore]
+        return jsonify({"ok": True})
+
+    @app.get("/manifest.webmanifest")
+    def manifest():
+        return jsonify({
+            "name": "Forge — the office",
+            "short_name": "Forge",
+            "description": "A small office you bring ideas to.",
+            "start_url": "/",
+            "scope": "/",
+            "display": "standalone",
+            "orientation": "any",
+            "background_color": "#0e1014",
+            "theme_color": "#0e1014",
+            "icons": [
+                {"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png",
+                 "purpose": "any"},
+                {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png",
+                 "purpose": "any"},
+                {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"},
+            ],
+        })
+
+    @app.get("/sw.js")
+    def service_worker():
+        """Served from the root so it can control the whole origin."""
+        response = app.send_static_file("sw.js")
+        response.headers["Cache-Control"] = "no-cache"
+        response.headers["Service-Worker-Allowed"] = "/"
+        return response
 
     @app.get("/")
     def index():  # type: ignore[unused-ignore]
@@ -365,7 +402,7 @@ def serve(cfg: Config, *, open_browser: bool = True, service: OfficeService | No
     app = create_app(cfg, svc)
     svc.start_scheduler()
     host, port = cfg.office.host, cfg.office.port
-    url = f"http://{host}:{port}/"
+    url = auth.link(host, port, app.config.get("FORGE_TOKEN"))
     log.info("office open at %s", url)
     if open_browser:
         threading.Timer(1.0, lambda: _try_open(url)).start()

@@ -3,21 +3,7 @@ import math
 
 import pytest
 
-from forge.staff.office import Office
-from forge.web.server import OfficeService, create_app, json_safe
-
-
-@pytest.fixture
-def client(make_cfg):
-    cfg = make_cfg()
-    office = Office(cfg)
-    service = OfficeService(cfg, office=office, autostart=False)
-    app = create_app(cfg, service)
-    app.config.update(TESTING=True)
-    with app.test_client() as c:
-        c.service = service
-        yield c
-    service.close()
+from forge.web.server import json_safe
 
 
 def test_the_page_loads(client):

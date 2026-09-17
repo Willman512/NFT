@@ -29,7 +29,9 @@ forge office      # opens http://127.0.0.1:8765/
 ```
 
 No API key, no wallet, no network needed. Type an idea into the box and watch
-what happens.
+what happens — literally: the office is a room you can see, with five people in
+it who walk about, sit down to work, gather round the table when they meet, and
+come and stand at your desk when they need an answer.
 
 Optional:
 
@@ -40,6 +42,22 @@ pip install -e ".[live]"      # only if something will ever touch a real wallet
 ```
 
 ---
+
+## The room
+
+Everything on screen comes from real state. Nobody paces about to look busy:
+
+| What you see | What it means |
+|---|---|
+| Someone at their desk, typing, green ring | that piece of work is in progress |
+| Someone standing at **YOU** with an amber **?** | they are blocked on an answer from you |
+| Everyone round the table, "STANDUP" | a standup just ran; it holds for a few seconds so you can read it |
+| A speech bubble | the last thing that person actually said, straight from the feed |
+| Cards in the **IDEAS IN** tray | ideas on the board, coloured by status |
+| The arc on the wall clock | how much of the wait until the next standup has gone |
+| Someone idle at their desk | nothing on their desk — the office really is quiet |
+
+Tap anyone to talk to them.
 
 ## What happens to an idea
 
@@ -105,6 +123,42 @@ Idea 1: Run a Saturday repair cafe where people bring broken small appliances…
     [ ] banker      Set the budget and the stop
     [ ] maker       Write a one-page description of the finished thing
 ```
+
+---
+
+## Getting to it from anywhere
+
+By default the office listens on localhost and nothing else can reach it.
+
+**On your own network** — your phone on the same wifi:
+
+```bash
+forge office --lan
+```
+
+It prints a link with a key in it. Open that on the phone once and it stays
+signed in for a month; add it to your home screen and it behaves like an app.
+Lost the link? `forge office --show-link`.
+
+Two things to be straight about. The key is in the link, so **treat the link
+like a password** — anyone who has it can talk to your staff, spend from the
+budget and see your wallet. And it is plain HTTP, so it is only as private as
+the network you are on.
+
+**From actually anywhere** — a coffee shop, another country — do not port
+forward. Put it behind a tunnel, which gives you TLS and an address that works
+from everywhere without opening anything on your router:
+
+```bash
+# Tailscale: private to your own devices, nothing public
+tailscale serve 8765
+
+# Cloudflare Tunnel: a public https URL, still protected by the token
+cloudflared tunnel --url http://localhost:8765
+```
+
+Either way the token still applies, so the tunnel is not the only thing
+standing between your office and the internet.
 
 ---
 
@@ -209,6 +263,8 @@ office can see the balance while having no ability to move it.
 | Command | What it does |
 |---|---|
 | `forge office` | the visual office (the main one) |
+| `forge office --lan` | …and let your phone reach it |
+| `forge office --show-link` | print the link with its key |
 | `forge idea "..."` | put an idea to the staff |
 | `forge ideas` | what is on the board |
 | `forge idea show 3` | one idea: every review, every piece of work |
@@ -241,15 +297,20 @@ forge/
   core/        ledger (double entry), survival rule, orchestrator, config
   ventures/    the two bundled examples, both off by default
   wallet/      Solana, watch-only by default
-  web/         the local office UI
+  web/         the office UI — scene.js draws the room, auth.py guards it
 ```
+
+The room is plain SVG with CSS animation, built in one file with no framework
+and no build step, so it loads instantly and works with the network down. It
+respects `prefers-reduced-motion`: if you have that set, everybody stands
+still and the state is shown without the movement.
 
 The whole business is one SQLite file at `.forge/forge.db` — ideas, reviews,
 assignments, books, chat history, task queue. Back that up and you have backed
 up the company.
 
 ```bash
-pip install -e ".[dev]" && pytest      # 165 tests, no network required
+pip install -e ".[dev]" && pytest      # 189 tests, no network required
 ```
 
 ---

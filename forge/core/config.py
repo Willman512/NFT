@@ -85,9 +85,13 @@ class OfficeConfig:
     wallet_address: str = ""
     wallet_keyfile: str = ""
     rpc_url: str = "https://api.mainnet-beta.solana.com"
-    #: Local web UI.
+    #: Local web UI. Leave the host on loopback unless you mean to expose it;
+    #: binding anywhere else requires a token and the office will mint one.
     host: str = "127.0.0.1"
     port: int = 8765
+    #: Set this to pin the access token. Empty means one is generated the
+    #: first time the office binds to something other than loopback.
+    token: str = ""
 
     def as_options(self) -> dict[str, Any]:
         return {
@@ -152,6 +156,26 @@ class Config:
         # schedule of its own.
 
 
+def _build(cls: type, data: dict[str, Any], where: str):
+    """Construct a config section, naming any key it does not recognise.
+
+    A stale or mistyped key should say which key and what was expected,
+    rather than surfacing as a TypeError from a dataclass constructor.
+    """
+    known = set(cls.__dataclass_fields__)
+    unknown = sorted(set(data) - known)
+    if unknown:
+        raise ConfigError(
+            f"{where}: unknown setting{'s' if len(unknown) > 1 else ''} "
+            f"{', '.join(repr(u) for u in unknown)}. "
+            f"Valid here: {', '.join(sorted(known))}"
+        )
+    try:
+        return cls(**data)
+    except TypeError as exc:  # pragma: no cover - a wrong type, not a wrong name
+        raise ConfigError(f"{where}: {exc}") from exc
+
+
 def _as_dict(value: Any, where: str) -> dict[str, Any]:
     if value is None:
         return {}
@@ -175,12 +199,19 @@ def load_config(path: str | Path | None = None) -> Config:
         raise ConfigError(f"config file not found: {p}")
     raw = _as_dict(yaml.safe_load(p.read_text()), "config root")
 
-    treasury = TreasuryConfig(**_as_dict(raw.get("treasury"), "treasury"))
-    office = OfficeConfig(**_as_dict(raw.get("office"), "office"))
+    treasury = _build(TreasuryConfig, _as_dict(raw.get("treasury"), "treasury"), "treasury")
+    office = _build(OfficeConfig, _as_dict(raw.get("office"), "office"), "office")
 
     ventures: dict[str, VentureConfig] = {}
     for name, body in _as_dict(raw.get("ventures"), "ventures").items():
         body = _as_dict(body, f"ventures.{name}")
+        unknown = sorted(set(body) - {"enabled", "interval_minutes", "max_capital_usd", "options"})
+        if unknown:
+            raise ConfigError(
+                f"ventures.{name}: unknown setting{'s' if len(unknown) > 1 else ''} "
+                f"{', '.join(repr(u) for u in unknown)}. "
+                f"Valid here: enabled, interval_minutes, max_capital_usd, options"
+            )
         ventures[name] = VentureConfig(
             name=name,
             enabled=bool(body.get("enabled", True)),
@@ -192,7 +223,9 @@ def load_config(path: str | Path | None = None) -> Config:
     nraw = _as_dict(raw.get("notify"), "notify")
     notify = NotifyConfig(
         desktop=bool(nraw.get("desktop", True)),
-        telegram=TelegramConfig(**_as_dict(nraw.get("telegram"), "notify.telegram")),
+        telegram=_build(
+            TelegramConfig, _as_dict(nraw.get("telegram"), "notify.telegram"), "notify.telegram"
+        ),
     )
 
     cfg = Config(

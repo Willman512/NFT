@@ -107,83 +107,55 @@ code { font-family: var(--mono); }
 }
 
 /* ------------------------------------------------------------- layout */
+/* Mobile first: one column, one panel at a time, tabs along the bottom.
+   The office scene is always present, because it is the point. */
 .layout {
-  display: grid; grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 22px; padding: 20px; align-items: start;
-}
-@media (max-width: 1000px) { .layout { grid-template-columns: minmax(0, 1fr); } }
-
-.sectionhead { margin: 22px 0 10px; }
-.floorcol > .sectionhead:first-child, .feedcol > .sectionhead:first-child { margin-top: 0; }
-
-/* -------------------------------------------------------------- floor */
-.floor {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(215px, 1fr)); gap: 14px;
-  padding: 18px; border-radius: 16px;
-  border: 1px solid var(--line);
-  /* A floor, not just a list: faint boards under the desks. */
-  background:
-    repeating-linear-gradient(90deg, transparent 0 63px, var(--line-soft) 63px 64px),
-    repeating-linear-gradient(0deg, transparent 0 63px, var(--line-soft) 63px 64px),
-    var(--bg-sunken);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  padding: 14px;
+  align-items: start;
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
 }
 
-.desk {
-  position: relative; display: flex; flex-direction: column; gap: 9px;
-  padding: 14px; padding-top: 16px;
-  background: var(--bg-raised);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
+.panel[hidden] { display: none; }
+
+.sectionhead { margin: 18px 0 10px; }
+.scenecol > .sectionhead:first-child,
+.panel > .sectionhead:first-child { margin-top: 0; }
+
+.team { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
+.mate {
+  display: flex; align-items: center; gap: 9px;
+  padding: 9px 11px; min-height: 52px;
+  border-radius: 11px; text-align: left; font: inherit; color: inherit;
+  background: var(--bg-raised); border: 1px solid var(--line);
+  border-left: 3px solid var(--seat, var(--line));
   cursor: pointer;
-  transition: transform .12s ease, border-color .12s ease;
-  text-align: left; font: inherit; color: inherit;
 }
-.desk:hover { transform: translateY(-2px); border-color: var(--seat, var(--accent)); }
-.desk::before {
-  content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
-  background: var(--seat, var(--accent));
-  border-radius: var(--radius) var(--radius) 0 0;
+.mate:hover { border-color: var(--ink-faint); border-left-color: var(--seat, var(--line)); }
+.mate .avatar { width: 30px; height: 30px; font-size: 15px; border-radius: 9px; flex: none; }
+.mate-text { min-width: 0; }
+.mate-name { font-size: 12.5px; font-weight: 600; }
+.mate-doing {
+  font-size: 11.5px; color: var(--ink-faint);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.desk > .bubble { flex: 1; }
-/* The manager runs the others, so they get the corner office across the top. */
-.desk.boss { grid-column: 1 / -1; flex-direction: row; align-items: stretch; gap: 14px; }
-.desk.boss .desk-top { flex-direction: column; align-items: flex-start; gap: 6px; min-width: 190px; }
-.desk.boss .avatar { width: 44px; height: 44px; font-size: 22px; }
-.desk.boss .bubble { font-size: 13px; }
-.desk.boss .bubble::after { top: 16px; left: -5px; border-left: 1px solid var(--line-soft); border-top: none;
-                            border-bottom: 1px solid var(--line-soft); }
-.desk.boss .desk-foot { flex-direction: column; align-items: flex-end; justify-content: flex-end; gap: 2px; min-width: 76px; }
-.desk.boss .desk-doing {
-  min-width: 190px; max-width: 230px; padding: 0 0 0 14px;
-  border-top: none; border-left: 1px dashed var(--line);
-  display: flex; align-items: center;
-}
+.mate.waiting .mate-doing { color: var(--warn); }
 
-.desk-top { display: flex; align-items: center; gap: 10px; }
-.avatar {
-  display: grid; place-items: center;
-  width: 38px; height: 38px; flex: none;
-  font-size: 19px; border-radius: 11px;
-  background: color-mix(in srgb, var(--seat, var(--accent)) 18%, var(--bg-sunken));
-  border: 1px solid color-mix(in srgb, var(--seat, var(--accent)) 40%, transparent);
+@media (min-width: 900px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) 350px;
+    gap: 22px; padding: 20px;
+    padding-bottom: 76px;
+  }
+  .scenecol { grid-column: 1 / -1; }
+  .panel[data-panel="ideas"] { grid-column: 1; }
+  .panel[data-panel="you"]   { grid-column: 1; }
+  .panel[data-panel="feed"]  { grid-column: 2; grid-row: 2 / span 2; }
+  /* On a wide screen every panel is on screen at once. */
+  .panel[hidden] { display: block; }
 }
-.desk-name { font-weight: 620; }
-.desk-title { font-size: 12px; color: var(--ink-faint); }
-.bubble {
-  position: relative; min-height: 48px;
-  padding: 9px 11px; border-radius: 10px;
-  background: var(--bg-sunken); border: 1px solid var(--line-soft);
-  font-size: 12.5px; color: var(--ink-dim);
-}
-.bubble::after {
-  content: ""; position: absolute; top: -5px; left: 16px;
-  width: 8px; height: 8px; transform: rotate(45deg);
-  background: var(--bg-sunken);
-  border-left: 1px solid var(--line-soft); border-top: 1px solid var(--line-soft);
-}
-.bubble.quiet { color: var(--ink-faint); font-style: italic; }
-.desk-foot { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: var(--ink-faint); }
 
 /* ----------------------------------------------------------- ventures */
 .ventures { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
@@ -232,9 +204,9 @@ code { font-family: var(--mono); }
 .incomeform input { flex: 1; min-width: 110px; }
 
 /* --------------------------------------------------------------- feed */
-.feed {
-  display: flex; flex-direction: column; gap: 8px;
-  max-height: calc(100vh - 190px); overflow-y: auto; padding-right: 4px;
+.feed { display: flex; flex-direction: column; gap: 8px; }
+@media (min-width: 900px) {
+  .feed { max-height: calc(100vh - 230px); overflow-y: auto; padding-right: 4px; }
 }
 .remark {
   display: flex; gap: 9px; padding: 10px 11px;
@@ -385,3 +357,244 @@ code { font-family: var(--mono); }
   padding-top: 7px; border-top: 1px dashed var(--line);
 }
 .desk-doing b { color: var(--ink-dim); font-weight: 550; }
+
+/* ================================================================ scene */
+.scene {
+  /* Sized by height so it never eats the whole screen on a wide monitor,
+     and never letterboxes: the width follows from the aspect ratio. */
+  position: relative;
+  aspect-ratio: 1000 / 640;
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--sc-floor);
+  box-shadow: var(--shadow);
+  --sc-floor: #131720;
+  --sc-board: #1b2130;
+  --sc-wall: #1a1f2b;
+  --sc-window: #22304a;
+  --sc-furniture: #232a38;
+  --sc-furniture-2: #2b3445;
+  --sc-ink: #7c8799;
+  --sc-skin: #d9b8a0;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .scene {
+    --sc-floor: #eef1f6;
+    --sc-board: #e2e7ef;
+    --sc-wall: #e6eaf1;
+    --sc-window: #cfe0f5;
+    --sc-furniture: #d6dce6;
+    --sc-furniture-2: #c6ceda;
+    --sc-ink: #7b8595;
+    --sc-skin: #e5c3a9;
+  }
+}
+.scene svg { display: block; width: 100%; height: 100%; }
+
+/* On anything bigger than a phone the room is sized by height, so it stays a
+   view of the office rather than swallowing the page. Width follows from the
+   aspect ratio, so it never letterboxes. */
+@media (min-width: 900px) {
+  .scene { height: min(52vh, 560px); width: auto; margin: 0 auto; }
+}
+
+.sc-floor { fill: var(--sc-floor); }
+.sc-board { stroke: var(--sc-board); stroke-width: 1; }
+.sc-wall { fill: var(--sc-wall); }
+.sc-window { fill: var(--sc-window); opacity: .85; }
+.sc-mullion { stroke: var(--sc-wall); stroke-width: 3; }
+
+.sc-clockface { fill: var(--sc-furniture); }
+.sc-clockring { fill: none; stroke: var(--sc-ink); stroke-width: 1.5; opacity: .5; }
+.sc-clockarc { fill: none; stroke: var(--accent); stroke-width: 3.5; stroke-linecap: round; opacity: .9; }
+.sc-clockhand { stroke: var(--sc-ink); stroke-width: 2; stroke-linecap: round; }
+.sc-clockpin { fill: var(--sc-ink); }
+
+.sc-tray { fill: var(--sc-furniture); stroke: var(--sc-furniture-2); stroke-width: 2; }
+.sc-caption {
+  fill: var(--sc-ink); font-size: 11px; font-weight: 600;
+  letter-spacing: .1em; text-anchor: middle;
+  font-family: var(--sans);
+}
+.sc-card { fill: var(--sc-furniture-2); stroke: var(--sc-ink); stroke-width: .5; opacity: .9; }
+.sc-card-proposed, .sc-card-vetting { fill: #64748b; }
+.sc-card-accepted, .sc-card-in_progress { fill: var(--accent); }
+.sc-card-parked { fill: var(--warn); }
+.sc-card-declined { fill: var(--bad); }
+
+.sc-tableshadow { fill: rgba(0,0,0,.25); }
+.sc-table { fill: var(--sc-furniture); stroke: var(--sc-furniture-2); stroke-width: 2; }
+.sc-tablering { fill: none; stroke: var(--accent); stroke-width: 2; opacity: 0; }
+.sc-tablering.live { opacity: .55; animation: sc-ping 2s ease-out infinite; }
+@keyframes sc-ping {
+  0% { opacity: .55; transform: scale(.97); }
+  70% { opacity: 0; transform: scale(1.06); }
+  100% { opacity: 0; }
+}
+.sc-tablelabel {
+  fill: var(--accent); font-size: 13px; font-weight: 600; text-anchor: middle;
+  letter-spacing: .12em; text-transform: uppercase; font-family: var(--sans);
+}
+
+.sc-pot { fill: #8a5a3b; }
+.sc-leaf { fill: #3f8f63; opacity: .85; }
+.sc-youdesk { fill: var(--sc-furniture); stroke: var(--accent); stroke-width: 1.5; opacity: .9; }
+.sc-youlabel {
+  fill: var(--accent); font-size: 12px; font-weight: 700; text-anchor: middle;
+  letter-spacing: .18em; font-family: var(--sans);
+}
+
+.sc-desktop { fill: var(--sc-furniture); stroke: var(--sc-furniture-2); stroke-width: 2; }
+.sc-monitor { fill: var(--sc-window); opacity: .75; }
+.sc-keyboard { fill: var(--sc-furniture-2); }
+.sc-mug { fill: var(--warn); opacity: .75; }
+
+/* ------------------------------------------------------------- actors */
+.actor {
+  transform-box: view-box;
+  transform-origin: 0 0;
+  transition: transform 1.4s cubic-bezier(.45,.05,.35,1);
+  cursor: pointer;
+}
+.actor:focus-visible { outline: none; }
+.actor:focus-visible .ac-ring { opacity: 1; stroke-dasharray: none; }
+.ac-shadow { fill: rgba(0,0,0,.28); }
+.ac-torso { fill: var(--seat, #6366f1); }
+.ac-arm { fill: var(--seat, #6366f1); filter: brightness(.9); }
+.ac-leg { fill: #39414f; }
+.ac-head { fill: var(--sc-skin); }
+.ac-hair { fill: var(--seat, #6366f1); filter: brightness(.75); }
+.ac-eye { fill: #2a2f3a; }
+.ac-name {
+  fill: var(--sc-ink); font-size: 12px; font-weight: 600; text-anchor: middle;
+  font-family: var(--sans);
+}
+
+.ac-ring { fill: none; stroke: var(--seat, #6366f1); stroke-width: 2; opacity: 0; }
+.actor.typing .ac-ring { opacity: .5; animation: sc-ping 2.4s ease-out infinite; }
+.actor.asking .ac-ring { stroke: var(--warn); opacity: .6; animation: sc-ping 1.3s ease-out infinite; }
+
+.ac-mark { opacity: 0; transition: opacity .25s; }
+.ac-markbg { fill: var(--warn); }
+.ac-markglyph {
+  fill: #1a1205; font-size: 15px; font-weight: 800; text-anchor: middle;
+  font-family: var(--sans);
+}
+.actor.asking .ac-mark { opacity: 1; animation: sc-nudge 1.1s ease-in-out infinite; }
+@keyframes sc-nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+
+/* Breathing, so an idle office is not a still image. */
+.ac-body { transform-box: fill-box; transform-origin: 50% 100%; }
+.actor.idle .ac-body { animation: sc-breathe 3.4s ease-in-out infinite; }
+@keyframes sc-breathe { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
+
+.actor.typing .ac-arm-l { animation: sc-type 260ms ease-in-out infinite; }
+.actor.typing .ac-arm-r { animation: sc-type 260ms ease-in-out infinite reverse; }
+@keyframes sc-type { 0%,100% { transform: translateY(0); } 50% { transform: translateY(2.5px); } }
+
+.actor.talking .ac-body { animation: sc-talk 1.6s ease-in-out infinite; }
+@keyframes sc-talk { 0%,100% { transform: rotate(0deg); } 30% { transform: rotate(-2.5deg); } 65% { transform: rotate(2.5deg); } }
+
+.actor.walking .ac-leg-l { animation: sc-step .42s ease-in-out infinite; }
+.actor.walking .ac-leg-r { animation: sc-step .42s ease-in-out infinite reverse; }
+.actor.walking .ac-body { animation: sc-bob .42s ease-in-out infinite; }
+@keyframes sc-step { 0%,100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-3px) rotate(9deg); } }
+@keyframes sc-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+
+/* ------------------------------------------------------------ bubbles */
+.sc-overlay { position: absolute; inset: 0; pointer-events: none; }
+.sc-bubble {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 46px)) scale(.94);
+  max-width: min(190px, 30%);
+  padding: 7px 9px;
+  border-radius: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  font-size: 11px; line-height: 1.4; color: var(--ink);
+  opacity: 0; transition: opacity .25s ease, transform .25s ease;
+}
+.sc-bubble.show { opacity: 1; transform: translate(-50%, calc(-100% - 52px)) scale(1); }
+.sc-bubble::after {
+  content: ""; position: absolute; left: 50%; bottom: -5px;
+  width: 9px; height: 9px; transform: translateX(-50%) rotate(45deg);
+  background: var(--bg-raised);
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .actor, .sc-bubble { transition: none; }
+  .actor *, .sc-tablering { animation: none !important; }
+}
+
+/* ================================================== phones and tablets */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 36;
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  background: color-mix(in srgb, var(--bg-raised) 96%, transparent);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tab {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 8px 4px 9px; min-height: 52px;
+  font: inherit; font-size: 10.5px; letter-spacing: .02em;
+  background: none; border: none; color: var(--ink-faint); cursor: pointer;
+}
+.tab-ico { font-size: 17px; line-height: 1; }
+.tab.active { color: var(--accent); }
+.pipcount {
+  position: absolute; top: 5px; right: calc(50% - 20px);
+  min-width: 16px; padding: 0 4px;
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  color: #1a1205; background: var(--warn); border-radius: 999px;
+}
+@media (min-width: 900px) { .tabbar { display: none; } }
+
+@media (max-width: 899px) {
+  .topbar { gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
+  .brand-sub { display: none; }
+  .tiles { order: 3; width: 100%; margin-left: 0; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .tile { min-width: 0; padding: 4px 9px; }
+  .tile-value { font-size: 13px; }
+  /* Three fit across a phone; the least urgent one goes. */
+  .tile-wide.tile-drop { display: none; }
+  .controls { margin-left: auto; }
+  .brainchip { display: none; }
+  .btn { padding: 8px 12px; }
+  #btn-run { display: none; }
+
+  /* The wallet strip sits above the tabs rather than under them. */
+  .wallet {
+    bottom: calc(52px + env(safe-area-inset-bottom));
+    padding: 7px 14px; gap: 8px; font-size: 12px;
+  }
+  .wallet-label, .wallet-link { display: none; }
+  .wallet-addr { max-width: 42vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .drawer, .drawer-wide { width: 100vw; }
+  .scene { border-radius: 14px; }
+  .idea { padding: 14px; }
+  .sc-bubble { max-width: 46%; font-size: 10px; padding: 6px 8px; }
+  .banner { margin: 10px 14px 0; }
+}
+
+/* Comfortable hit targets on touch screens. */
+@media (pointer: coarse) {
+  .btn { min-height: 40px; }
+  .btn-sm { min-height: 32px; }
+  .tab { min-height: 56px; }
+  .idea, .mate, .task { min-height: 48px; }
+}
+
+/* A phone in landscape has almost no height; let the scene shrink. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .scene { aspect-ratio: auto; height: 62vh; }
+}
