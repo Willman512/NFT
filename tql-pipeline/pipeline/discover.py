@@ -9,6 +9,7 @@ import json
 import re
 import urllib.parse
 from pathlib import Path
+import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -61,10 +62,21 @@ NOT_SHIPPERS = re.compile(r"\b(county|city of|township|university|college|school
                           r"state of|u\.?s\.? army|air force|navy|correctional|prison|landfill)\b", re.I)
 
 
-def _get_json(url, timeout=60):
-    req = urllib.request.Request(url, headers={"User-Agent": "ProspectResearch/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read().decode("utf-8", errors="replace"))
+def _get_json(url, timeout=60, tries=4, wait=10):
+    """EPA throttles bursts (429/5xx) and drops connections: back off and retry instead of losing a state's results."""
+    import time
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ProspectResearch/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as e:
+            if e.code not in (429, 500, 502, 503, 504) or i == tries - 1:
+                raise
+        except (urllib.error.URLError, ConnectionResetError, TimeoutError):
+            if i == tries - 1:
+                raise
+        time.sleep(wait * (i + 1))
 
 
 def echo_facilities(state, naics, get_json=_get_json, max_pages=20):
@@ -182,6 +194,27 @@ def find_website(name, state, get, cities=()):
     return None
 
 
+EPA_CACHE_DAYS = 30
+
+
+def _cached_epa(conn, st, code):
+    """A state+industry lookup done in the last month (so an interrupted run resumes instead of starting over)."""
+    import datetime as dt
+    conn.execute("CREATE TABLE IF NOT EXISTS epa_cache (state TEXT, naics TEXT, fetched_at TEXT, data TEXT, "
+                 "PRIMARY KEY (state, naics))")
+    row = conn.execute("SELECT fetched_at, data FROM epa_cache WHERE state=? AND naics=?", (st, code)).fetchone()
+    if row and (dt.datetime.now() - dt.datetime.fromisoformat(row[0])).days < EPA_CACHE_DAYS:
+        return json.loads(row[1])
+    return None
+
+
+def _cache_epa(conn, st, code, rows):
+    from .util import now_iso
+    conn.execute("INSERT OR REPLACE INTO epa_cache(state, naics, fetched_at, data) VALUES (?,?,?,?)",
+                 (st, code, now_iso(), json.dumps(rows)))
+    conn.commit()
+
+
 def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=True, limit=None,
              workers=16, log=print):
     """Pull, group, dedupe, find websites, add to prospects. Returns a summary dict."""
@@ -196,11 +229,15 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
     facilities = []
     for st in states:
         for code in naics:
-            try:
-                rows = echo_facilities(st, code, get_json)
-            except Exception as e:
-                log(f"  {st} {code}: EPA lookup failed ({type(e).__name__})")
-                continue
+            rows = _cached_epa(conn, st, code)
+            if rows is None:
+                try:
+                    rows = echo_facilities(st, code, get_json)
+                except Exception as e:
+                    log(f"  {st} {code}: EPA lookup failed ({type(e).__name__}: {getattr(e, 'code', e)}); "
+                        "rerun later to retry it")
+                    continue
+                _cache_epa(conn, st, code, rows)
             log(f"  {st} {code} ({ALL_NAICS.get(code, '?')}): {len(rows)} active plants")
             facilities += rows
     summary["facilities"] = len(facilities)

@@ -281,8 +281,11 @@ class DiscoverTest(unittest.TestCase):
         row = conn.execute("SELECT * FROM prospects").fetchone()
         self.assertIn("2 plant(s)", row["notes"])
         self.assertIn("flatbed", row["meta"])
-        res2 = discover(conn, ["TN"], ["332312"], get_json=fake_json, get_page=fake_page, log=lambda *_: None)
+        def no_network(url):
+            raise AssertionError("EPA should not be called again: the lookup is cached")
+        res2 = discover(conn, ["TN"], ["332312"], get_json=no_network, get_page=fake_page, log=lambda *_: None)
         self.assertEqual(res2["new"], 0)  # never re-adds a company it has seen
+        self.assertEqual(res2["facilities"], 3)  # an interrupted run resumes from the cached EPA lookups
         conn.close()
         tmp.cleanup()
 
