@@ -401,3 +401,43 @@ class GateTest(PipelineTest):
         self.conn.execute("INSERT INTO fmcsa VALUES ('MT','mikesell sales service','','HELENA','5','PRIVATE PROPERTY',4,1)")
         self.assertEqual(fmcsa.match(self.conn, "Ohio Steel Industries", ["OH"], ["Columbus"]), [])
         self.assertEqual(fmcsa.match(self.conn, "Mikesell's", ["OH"], ["Dayton"]), [])
+
+
+class ForwarderTest(unittest.TestCase):
+    def test_forwarder_is_prospect_not_competitor(self):
+        from pipeline.extract import pattern_features
+        icp = load_icp()
+        f, _ = pattern_features("We are a licensed NVOCC and freight forwarder offering ocean freight, air freight and customs brokerage.",
+                                icp["signals"])
+        self.assertEqual((f["forwarder"], f["broker_3pl"]), (1, 0))
+        f2, _ = pattern_features("Freight brokerage: carrier setup packet here.", icp["signals"])
+        self.assertEqual((f2["forwarder"], f2["broker_3pl"]), (0, 1))
+
+    def test_forwarder_flag_and_gates(self):
+        from pipeline.score import score
+        from pipeline.qualify import evaluate
+        icp, policy = load_icp(), load_policy()
+        model = {"version": 0, "bias": 0.0, "weights": {"forwarder": 3.0}, "go": 0.6, "skip": 0.35}
+        v, _, reasons = score({"forwarder": 1}, {}, model, icp, policy)
+        self.assertEqual(v, "GO")
+        self.assertTrue(any("FORWARDER" in r and "manager" in r for r in reasons))
+
+    def test_fmcsa_forwarder_rows(self):
+        from pipeline.discover import forwarder_companies
+        rows = [{"docket_number": "FF1", "legal_name": "ACME FORWARDING INC", "bus_city": "ATLANTA", "bus_state_code": "GA",
+                 "bus_zip_code": "30339", "bus_telno": "4045551212"},
+                {"docket_number": "FF2", "legal_name": "EXEL INC", "dba_name": "DHL SUPPLY CHAIN", "bus_city": "X", "bus_state_code": "OH"}]
+        cos = forwarder_companies(rows)
+        self.assertEqual([c["name"] for c in cos], ["Acme Forwarding Inc"])
+        self.assertEqual(cos[0]["phone"], "(404) 555-1212")
+        self.assertEqual(cos[0]["profile"], ["forwarder"])
+
+    def test_csv_list(self):
+        from pipeline.discover import companies_from_csv
+        tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False)
+        tmp.write("Company,City,State,Phone\nBLUE WAVE LOGISTICS LLC,Savannah,GA,912-555-0101\n")
+        tmp.close()
+        cos = companies_from_csv(tmp.name)
+        self.assertEqual(cos[0]["name"], "Blue Wave Logistics Llc")
+        self.assertEqual(cos[0]["plants"], ["Savannah, GA"])
+        os.unlink(tmp.name)

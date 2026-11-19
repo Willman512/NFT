@@ -134,9 +134,20 @@ def cmd_discover(conn, a):
         print("Google each one; if it's a fit, `python prospect.py add <their site>`.")
         return
     states = [s.strip().upper() for s in a.states.split(",") if s.strip()]
-    naics = a.naics.split(",") if a.naics else [c for p in a.profile.split(",") for c in disc.PROFILES[p.strip()]]
-    print(f"Searching EPA plant data: {len(states)} state(s) x {len(naics)} industries…")
-    res = disc.discover(conn, states, naics, find_sites=not a.no_websites, limit=a.limit)
+    if a.from_csv:
+        cos = disc.companies_from_csv(a.from_csv)
+        sts = sorted({p.split(", ")[1][:2] for c in cos for p in c["plants"] if ", " in p}) or states
+        print(f"{a.from_csv}: {len(cos)} companies. Checking fleets, finding websites…")
+        res = disc.process_companies(conn, cos, sts, find_sites=not a.no_websites, limit=a.limit)
+    elif a.forwarders:
+        print(f"Pulling active FMCSA freight forwarders in {', '.join(states)}…")
+        cos = disc.forwarder_companies(disc.fmcsa_forwarders(states))
+        print(f"  {len(cos)} forwarders (big national 3PLs left out). Checking fleets, finding websites…")
+        res = disc.process_companies(conn, cos, states, find_sites=not a.no_websites, limit=a.limit)
+    else:
+        naics = a.naics.split(",") if a.naics else [c for p in a.profile.split(",") for c in disc.PROFILES[p.strip()]]
+        print(f"Searching EPA plant data: {len(states)} state(s) x {len(naics)} industries…")
+        res = disc.discover(conn, states, naics, find_sites=not a.no_websites, limit=a.limit)
     print(f"\n{res['facilities']} active plants -> {res['companies']} companies "
           f"({res['known']} already seen, {res.get('fleet_dropped', 0)} dropped for their own FMCSA fleet). "
           f"New this run: {res['new']} — "
@@ -330,6 +341,8 @@ def main(argv=None):
     s.add_argument("--no-websites", action="store_true", help="just list companies, skip website lookup")
     s.add_argument("--no-research", action="store_true")
     s.add_argument("--unmatched", action="store_true", help="export companies with no website found (call list)")
+    s.add_argument("--forwarders", action="store_true", help="find freight forwarders (active FMCSA FF authority)")
+    s.add_argument("--from-csv", help="find websites for any list: columns name, city, state (phone, website optional)")
     s.set_defaults(fn=cmd_discover)
 
     s = sub.add_parser("desk-export", help="researched leads as a Prospecting Desk backup file (Restore from backup)")

@@ -191,14 +191,14 @@
     "broker_3pl": {
       "kind": "red_flag",
       "weight": -1.2,
-      "label": "They are a broker/3PL/forwarder themselves",
+      "label": "They are a truck broker/3PL themselves (competitor)",
       "patterns": [
         "\\bfreight broker",
         "\\b3pl\\b",
         "\\bthird[- ]party logistics",
-        "\\bfreight forward",
-        "\\bbrokerage\\b",
+        "\\b(freight|truck|truckload|transportation) brokerage\\b",
         "\\bcarrier (setup|packet|onboarding)",
+        "\\bbecome a carrier\\b",
         "\\bmc ?#? ?\\d{5,}"
       ]
     },
@@ -342,6 +342,29 @@
         "\\bincreas(ed|ing) (capacity|production)\\b",
         "\\bnow open\\b"
       ]
+    },
+    "forwarder": {
+      "kind": "fit",
+      "weight": 0.9,
+      "label": "Freight forwarder / NVOCC / customs broker: books drayage, inland truckload and LTL for every move",
+      "patterns": [
+        "\\bfreight forward(er|ers|ing)\\b",
+        "\\bnvocc?\\b",
+        "\\bnon[- ]vessel operating",
+        "\\bcustoms brok(er|erage)\\b",
+        "\\bocean freight\\b",
+        "\\bair freight\\b",
+        "\\biata\\b",
+        "\\b(fcl|lcl)\\b",
+        "\\bdrayage\\b",
+        "\\bocean transportation intermediary\\b"
+      ]
+    },
+    "naics_forwarder": {
+      "kind": "fit",
+      "weight": 0.7,
+      "label": "Active FMCSA freight-forwarder authority (FF docket)",
+      "computed": true
     }
   }
 }

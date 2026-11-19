@@ -96,6 +96,8 @@ def evaluate(conn, row, text, research, features, meta, policy):
         carriers = ("fail", "Runs its own trucks")
     elif lang:
         carriers = ("pass", f"Site: \"{lang.group(0)}\"")
+    elif (features.get("forwarder") or features.get("naics_forwarder")) and fleet[0] == "pass":
+        carriers = ("pass", "Freight forwarder with no trucks of its own: it books carriers for every move")
     elif fleet[0] == "pass" and inter[0] == "pass":
         carriers = ("pass", "Inferred: ships across state lines with no trucks of its own, so carriers haul it")
     else:

@@ -21,6 +21,9 @@ ANGLES = [
     ("manufacturer", "outbound trucks from {city}", "your usual carriers get tight when orders pile up",
      "We have 110,000+ vetted carriers, so we can add trucks fast.", "outbound loads"),
 ]
+ANGLES.insert(0, ("forwarder", "drayage and inland trucks", "covering the inland leg fast is what keeps your customers happy",
+                   "We run drayage, truckload and LTL with 110,000+ vetted carriers, and cross into Canada and Mexico.",
+                   "inland and drayage loads"))
 DEFAULT = (None, "pallets out of {city}", "getting pallets out the door on time takes more chasing than it should",
            "We cover truckload, partials, and LTL with 45+ LTL carriers.", "pallet loads")
 # CAN-SPAM: commercial email needs a valid postal address and a way to opt out. Same line as Prospecting Desk.
@@ -74,13 +77,15 @@ def context(row):
             allowed |= {"reefer", "retail_dealers", "cross_border", "distributor", "manufacturer"}
         if "dryvan" in naics:
             allowed |= {"retail_dealers", "cross_border", "distributor", "manufacturer"}
+        if "forwarder" in naics:
+            allowed |= {"forwarder", "cross_border"}
 
     if naics:  # the industry code settles it; site words like "packing" don't make a trailer plant a food company
         foodish = "reefer" in naics and "flatbed" not in naics
 
     def usable(a):
         if not f.get(a[0]) and not (a[0] == "flatbed_oversize" and "flatbed" in naics) \
-                and not (a[0] == "reefer" and "reefer" in naics):
+                and not (a[0] == "reefer" and "reefer" in naics) and not (a[0] == "forwarder" and "forwarder" in naics):
             return False
         if allowed is not None and a[0] not in allowed:
             return False

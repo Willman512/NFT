@@ -60,6 +60,8 @@ def merge_meta(research, features, meta):
         if not any(loc.startswith(city + ",") for loc in research.get("us_locations", [])):
             research.setdefault("us_locations", []).append(p)
     research["epa_plants"] = len(plants)
+    if meta.get("phone") and meta["phone"] not in research.setdefault("phones", []):
+        research["phones"].insert(0, meta["phone"])
     research["naics"] = meta.get("naics", [])
     n = len(research.get("us_locations", [])) + len(research.get("ca_locations", []))
     if n >= 2:

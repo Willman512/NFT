@@ -8,6 +8,8 @@
   "_require_crm_ownership_check": "CONFIRM: before first contact, check TQL's CRM that the account isn't already a customer or owned/worked by another rep. Record result with `outcome <domain> owned_by_other_rep` or `existing_customer`.",
 
   "broker_3pl_requires_manager_ok": true,
+  "forwarders_require_manager_ok": true,
+  "_forwarders_require_manager_ok": "CONFIRM: forwarder leads are allowed (not capped) but every card and Desk record says to get a manager OK first.",
   "_broker_3pl_requires_manager_ok": "Brokers/3PLs/forwarders are capped at MAYBE until you get a manager OK.",
 
   "blocked_domains": ["linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "zoominfo.com", "google.com"],

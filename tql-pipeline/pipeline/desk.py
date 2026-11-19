@@ -111,6 +111,8 @@ def ratings(f, r, contacts):
 
 
 def _modes(f, r):
+    if f.get("forwarder") or f.get("naics_forwarder"):
+        return ["Drayage and ocean", "Van", "LTL and partials"] + (["Cross-border"] if f.get("cross_border") else [])
     modes = []
     naics = any(k.startswith("naics_") and v for k, v in f.items())
     if f.get("flatbed_oversize") or f.get("naics_flatbed"):
@@ -130,6 +132,9 @@ QUESTIONS = {
                 "Any loads that need tarps, permits or a step deck?", "Do you ship delivered, or do customers pick up?"],
     "Reefer": ["Dry, refrigerated or frozen?", "Which retail DCs do you deliver to, and which lanes get rejected most?",
                "Do you book the trucks or do customers pick up?"],
+    "Forwarder": ["Which ports and airports do you move the most out of, and who covers your drayage?",
+                  "When an inland truckload or LTL leg falls through, who's your next call?",
+                  "Any lanes into Canada or Mexico?"],
     "Van": ["Do you ship delivered, or do customers pick up?", "Who books the trucks: you, a 3PL or the customer?",
             "Which lane gave you the most trouble this month?"],
 }
@@ -161,7 +166,8 @@ def to_desk(row, stamp=None):
     why = "; ".join(x[2:] for x in reasons if x.startswith("+"))
     flags = [x for x in reasons if not x.startswith(("+", "-")) and "CRM" not in x]
     from .discover import ALL_NAICS
-    industry = ", ".join(ALL_NAICS[n] for n in meta.get("naics", []) if n in ALL_NAICS) or ", ".join(
+    industry = ("Freight forwarder" if (f.get("forwarder") or f.get("naics_forwarder")) else "") or \
+        ", ".join(ALL_NAICS[n] for n in meta.get("naics", []) if n in ALL_NAICS) or ", ".join(
         k for k in ("manufacturer", "distributor", "food_producer") if f.get(k)).replace("_", " ")
     phones = r.get("phones", [])
     return {
@@ -186,7 +192,8 @@ def to_desk(row, stamp=None):
         "ratingsNote": "Estimated by the pipeline from the company website" + (" and EPA plant data" if meta else "")
                        + ". Industry growth left for you to rate.",
         "opener": call_opener(row).strip('"'),
-        "questions": QUESTIONS[next((m for m in ("Flatbed", "Reefer") if m in modes), "Van")],
+        "questions": QUESTIONS["Forwarder" if "Drayage and ocean" in modes else
+                               next((m for m in ("Flatbed", "Reefer") if m in modes), "Van")],
         "caution": " ".join(flags),
         "contacts": [{"id": f"{cid}_c{i}", "name": c.partition(" — ")[0], "title": c.partition(" — ")[2], "dept": "",
                       "email": "", "phone": "", "linkedin": "", "location": "",

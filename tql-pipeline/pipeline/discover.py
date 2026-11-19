@@ -8,6 +8,7 @@ plants are almost all in it. We pull active plants by NAICS code + state, group 
 import json
 import re
 import urllib.parse
+from pathlib import Path
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -202,6 +203,19 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
             facilities += rows
     summary["facilities"] = len(facilities)
     companies = group_companies(facilities, naics)
+    return process_companies(conn, companies, states, summary, get_page, find_sites, limit, workers, log)
+
+
+def process_companies(conn, companies, states, summary=None, get_page=None, find_sites=True, limit=None,
+                      workers=16, log=print):
+    """Shared by every lead source: dedupe -> drop FMCSA fleets -> verify website -> add to the pipeline."""
+    from .fetch import Fetcher
+    from .config import load_policy
+    from .pipeline import add_lead
+
+    policy = load_policy()
+    get_page = get_page or Fetcher(dict(policy, min_seconds_between_requests=0, request_timeout_seconds=6), retries=0).get
+    summary = summary or {"facilities": 0, "companies": 0, "new": 0, "matched": 0, "unmatched": 0, "known": 0}
     summary["companies"] = len(companies)
 
     known = {r["key"] for r in conn.execute("SELECT key FROM discovered")}
@@ -241,6 +255,8 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
     def work(c):
         state = c["plants"][0].split(", ")[1][:2] if ", " in c["plants"][0] else states[0]
         cities = [p.split(",")[0] for p in c["plants"]]
+        if c.get("website"):  # list already gave us the site
+            return c, c["website"]
         return c, (find_website(c["name"], state, get_page, cities) if find_sites else None)
 
     from concurrent.futures import as_completed
@@ -251,14 +267,18 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
                 c, url = fut.result()
             except Exception:
                 continue
-            meta = {"plants": c["plants"], "naics": c["naics"], "profile": c["profile"], "source": "epa-echo"}
+            meta = {"plants": c["plants"], "naics": c["naics"], "profile": c["profile"], "source": c.get("source", "epa-echo")}
+            if c.get("phone"):
+                meta["phone"] = c["phone"]
+            if c.get("docket"):
+                meta["docket"] = c["docket"]
             conn.execute("INSERT OR REPLACE INTO discovered(key, name, plants, naics, website, found_at) "
                          "VALUES (?,?,?,?,?,?)", (c["key"], c["name"], json.dumps(c["plants"]), json.dumps(c["naics"]),
                                                   url, now_iso()))
             summary["new"] += 1
             conn.commit()
             if url:
-                dom, status = add_lead(conn, url, c["name"], "epa-echo",
+                dom, status = add_lead(conn, url, c["name"], c.get("source", "epa-echo"),
                                        f"{len(c['plants'])} plant(s): {'; '.join(c['plants'][:4])}; NAICS {' '.join(c['naics'])}")
                 if dom:
                     conn.execute("UPDATE prospects SET meta=? WHERE domain=?", (json.dumps(meta), dom))
@@ -276,3 +296,60 @@ def unmatched(conn, limit=500):
 
 def domain_of(url):
     return normalize_domain(url)
+
+
+# ---- Freight forwarders (FMCSA licensing file: active FF authority)
+LICENSING = "https://data.transportation.gov/resource/6eyk-hxee.json"
+GIANTS = re.compile(r"\b(dhl|exel|ryder|xpo|fedex|ups|u p s|c h robinson|expeditors|kuehne|schenker|ceva|nippon express|"
+                    r"geodis|dsv|panalpina|uber freight|amazon|penske|j b hunt|landstar|coyote|echo global|total quality)\b", re.I)
+
+
+def fmcsa_forwarders(states, get=None):
+    """Active FMCSA freight forwarders (general freight, not household-goods movers) in `states`."""
+    import urllib.parse
+    from .fmcsa import _get
+    get = get or _get
+    sts = ",".join(f"'{s}'" for s in states)
+    qs = urllib.parse.urlencode({
+        "$limit": 5000, "$select": "docket_number,legal_name,dba_name,bus_street_po,bus_city,bus_state_code,bus_zip_code,bus_telno",
+        "$where": f"starts_with(docket_number,'FF') AND (common_stat='A' OR contract_stat='A') AND hhg_chk='N' "
+                  f"AND property_chk='Y' AND bus_state_code in ({sts})"})
+    return get(LICENSING + "?" + qs)
+
+
+def forwarder_companies(rows):
+    out = {}
+    for r in rows:
+        name = (r.get("dba_name") or r.get("legal_name") or "").strip()
+        if not name or GIANTS.search(name) or GIANTS.search(r.get("legal_name") or ""):
+            continue
+        key = company_key(name)
+        tel = re.sub(r"\D", "", r.get("bus_telno") or "")
+        plant = f"{(r.get('bus_city') or '').title()}, {r.get('bus_state_code')} {(r.get('bus_zip_code') or '')[:5]}".strip()
+        c = out.setdefault(key, {"name": name.title(), "key": key, "plants": [], "naics": [], "profile": ["forwarder"],
+                                 "source": "fmcsa-forwarder", "docket": r.get("docket_number"),
+                                 "phone": f"({tel[:3]}) {tel[3:6]}-{tel[6:10]}" if len(tel) == 10 else ""})
+        if plant not in c["plants"]:
+            c["plants"].append(plant)
+    return list(out.values())
+
+
+def companies_from_csv(path):
+    """Any list -> companies. Columns: name/company (required), city, state, phone, website (optional).
+    Use it for the FMC licensed forwarder/NVOCC list, trade-show exhibitor lists, port directories…"""
+    import csv
+    out = []
+    with open(path, newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            row = {(k or "").strip().lower(): (v or "").strip() for k, v in row.items()}
+            name = row.get("name") or row.get("company") or row.get("company name") or row.get("legal name")
+            if not name:
+                continue
+            st = (row.get("state") or row.get("st") or "").upper()[:2]
+            city = (row.get("city") or "").title()
+            out.append({"name": name.title() if name.isupper() else name, "key": company_key(name),
+                        "plants": [f"{city}, {st}".strip(", ")] if (city or st) else [], "naics": [],
+                        "profile": [p for p in [row.get("type", "").lower()] if p in ("forwarder", "flatbed", "reefer", "dryvan")],
+                        "source": f"list:{Path(path).name}", "phone": row.get("phone", ""),
+                        "website": row.get("website") or row.get("url") or ""})
+    return out

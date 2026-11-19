@@ -5,7 +5,7 @@ from .db import latest_model
 
 
 CORE_FREIGHT = ("manufacturer", "distributor", "food_producer", "flatbed_oversize", "reefer", "palletized",
-                "controls_delivery")
+                "controls_delivery", "forwarder")
 
 
 def current_model(conn, icp):
@@ -54,10 +54,13 @@ def score(features, research, model, icp, policy):
 
     # Policy caps: these never get a clean GO no matter how good the score looks.
     if features.get("broker_3pl"):
-        flags.append("RED FLAG: looks like a broker/3PL/forwarder. Confirm with your manager that TQL allows "
+        flags.append("RED FLAG: looks like a truck broker/3PL (a competitor). Confirm with your manager that TQL allows "
                      "taking freight from them; margins will be thin.")
         if verdict == "GO" and policy.get("broker_3pl_requires_manager_ok", True):
             verdict = "MAYBE"
+    if features.get("forwarder") and policy.get("forwarders_require_manager_ok", True):
+        flags.append("FORWARDER: books drayage, inland truckload and LTL. Confirm with your manager that TQL allows "
+                     "taking forwarder freight before you contact them.")
     if features.get("no_na_presence"):
         flags.append("RED FLAG: no US/Canada/Mexico address or phone found — may be overseas-only (ocean/air only).")
         if verdict == "GO":
