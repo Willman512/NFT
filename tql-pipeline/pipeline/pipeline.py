@@ -50,6 +50,28 @@ def _save_scored(conn, dom, verdict, p, reasons, features, model_version):
                  (verdict, p, json.dumps(reasons), json.dumps(features), model_version, dom))
 
 
+def merge_meta(research, features, meta):
+    """Government data beats website guesswork: EPA plant list and industry code."""
+    if not meta:
+        return
+    plants = meta.get("plants", [])
+    for p in plants:
+        city = p.split(",")[0]
+        if not any(loc.startswith(city + ",") for loc in research.get("us_locations", [])):
+            research.setdefault("us_locations", []).append(p)
+    research["epa_plants"] = len(plants)
+    research["naics"] = meta.get("naics", [])
+    n = len(research.get("us_locations", [])) + len(research.get("ca_locations", []))
+    if n >= 2:
+        features["multi_location"] = 1
+    features["many_locations"] = 1 if n >= 5 else features.get("many_locations", 0)
+    for prof in meta.get("profile", []):
+        features[f"naics_{prof}"] = 1
+    if meta.get("profile"):
+        features["no_na_presence"] = 0  # EPA-registered US plant
+        features["contact_info_missing"] = 0 if research.get("phones") else features.get("contact_info_missing", 0)
+
+
 def _store_research(conn, dom, pages, error, icp, policy):
     if error is not None:  # dead site, DNS, robots — record it and move on
         conn.execute("UPDATE prospects SET status='error', filter_reason=?, researched_at=? WHERE domain=?",
@@ -57,6 +79,7 @@ def _store_research(conn, dom, pages, error, icp, policy):
         conn.commit()
         return "error"
     research, features, text = extract(pages, icp["signals"], active_terms(conn))
+    merge_meta(research, features, jload(get_prospect(conn, dom)["meta"], {}))
     model = current_model(conn, icp)
     verdict, p, reasons = score(features, research, model, icp, policy)
     conn.execute("UPDATE prospects SET research=?, page_text=?, researched_at=?, status='researched', filter_reason=NULL,"

@@ -13,6 +13,8 @@ cd tql-pipeline
 python prospect.py add https://acme-steel.com https://frostfarms.com   # or: add leads.csv
 python prospect.py cycle                 # research → rescore → filter → show queue
 python prospect.py card acme-steel.com   # full research card (verdict, snapshot, contact, sources)
+python prospect.py discover --states OH,KY --profile flatbed      # find new shippers from EPA plant data
+python prospect.py plan                  # prospects needed for ~95% odds of a customer + daily quota
 python prospect.py today --drafts        # the day's plan: follow-ups due, new GOs with call openers + emails
 python prospect.py email acme-steel.com --phone "(513) 555-0000"   # next email in the sequence
 python prospect.py outcome acme-steel.com contacted
@@ -23,6 +25,31 @@ Set your phone once so every draft is signed: `export TQL_PHONE="(513) 555-0000"
 Starter leads are in `leads/`. Load them with `python prospect.py add leads/seed-2026-11-19.csv leads/seed-2026-11-19-batch2.csv`, then run `cycle`.
 
 A leads CSV needs a `url` (or `website` / `domain`) column. The `name`, `source` and `notes` columns are optional. Google redirect links are unwrapped, and duplicates are dropped by domain.
+
+## Finding leads automatically (`discover`)
+
+```bash
+python prospect.py discover --states GA,AL,FL --profile flatbed,reefer
+python prospect.py discover --states OH --naics 332312,327390     # exact industry codes
+python prospect.py discover --unmatched                           # companies found without a website -> CSV call list
+```
+
+`discover` pulls every **active plant** in your states and industries from the EPA's public ECHO database. Factories, sawmills, precast and food plants are almost all registered there. It then:
+1. Groups the plants by company, so a company with 5 plants ranks above one with 1.
+2. Skips companies already in the pipeline.
+3. Finds each company's website by trying likely domains, and accepts a site only if it shows the company's name **and** one of its plant cities or its state.
+4. Sends the verified ones through research and scoring.
+
+The government industry code becomes its own scoring signal, which is more reliable than website wording. It's resumable and never re-checks a company it has already processed, so run it weekly. Profiles: `flatbed` (steel, precast, lumber, trusses, machinery, trailers), `reefer` (frozen, meat, poultry, dairy, produce), `dryvan` (snacks, bakeries, beverages, packaging, plastics). See `pipeline/discover.py` to add codes.
+
+## The customer plan (`plan`)
+
+No list can make a shipper say yes. What the pipeline *can* do is make the odds close to certain if you follow the plan:
+
+- The chance a fully worked prospect (a call plus 3 emails) becomes a customer starts at a cautious **2% benchmark** (an assumption, set in `policy.json`). Each result you log updates that estimate with your real numbers.
+- From that rate it works out how many prospects give a **95%** chance of at least one new customer: 149 at 2%, because 1 − 0.98¹⁴⁹ ≈ 95%.
+- It spreads that number over 20 working days. `today` sizes your list to that daily quota and shows how you're tracking.
+- If the queue is too short to hit the plan, it tells you to run `discover`.
 
 ## The daily loop
 

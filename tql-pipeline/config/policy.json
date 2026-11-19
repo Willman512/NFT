@@ -30,6 +30,15 @@
   "not_interested_cooldown_days": 180,
   "_not_interested_cooldown_days": "CONFIRM: when a 'not right now' can be re-approached.",
 
+  "customer_plan": {
+    "target_probability": 0.95,
+    "benchmark_customer_rate": 0.02,
+    "_benchmark_customer_rate": "ASSUMPTION until you have data: ~2% of fully worked, well-qualified shippers become customers. Your own results replace it automatically.",
+    "benchmark_weight_prospects": 50,
+    "working_days": 20,
+    "start_date": null
+  },
+
   "max_new_contacts_per_day": null,
   "_max_new_contacts_per_day": "null = no cap. Set a number only if TQL policy has one.",
 

@@ -12,6 +12,7 @@
   python prospect.py stats | suggest | export
 """
 import argparse
+import json
 import os
 import sys
 
@@ -23,6 +24,8 @@ from pipeline.pipeline import (OUTCOMES, add_from_csv, add_lead, apply_filters, 
                                rescore_all, research_pending)
 from pipeline.report import card, export, queue_table, stats, suggest_searches
 from pipeline.today import next_touch, plan, write_plan
+from pipeline import discover as disc
+from pipeline import forecast
 from pipeline.util import normalize_domain
 
 
@@ -109,6 +112,39 @@ def cmd_today(conn, a):
     text = plan(conn, load_policy(), a.top, a.drafts, a.phone)
     print(text)
     print(f"\n(saved to {write_plan(text)})")
+
+
+def cmd_discover(conn, a):
+    if a.unmatched:
+        import csv
+        from pipeline.config import OUTPUT_DIR
+        OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        path = OUTPUT_DIR / "discovered-no-website.csv"
+        rows = disc.unmatched(conn)
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["company", "plants", "plant_locations", "naics", "google_this"])
+            for r in rows:
+                plants = json.loads(r["plants"])
+                w.writerow([r["name"], len(plants), "; ".join(plants), " ".join(json.loads(r["naics"])),
+                            f"{r['name']} {plants[0] if plants else ''}"])
+        print(f"{len(rows)} companies with no website found yet -> {path}")
+        print("Google each one; if it's a fit, `python prospect.py add <their site>`.")
+        return
+    states = [s.strip().upper() for s in a.states.split(",") if s.strip()]
+    naics = a.naics.split(",") if a.naics else [c for p in a.profile.split(",") for c in disc.PROFILES[p.strip()]]
+    print(f"Searching EPA plant data: {len(states)} state(s) x {len(naics)} industries…")
+    res = disc.discover(conn, states, naics, find_sites=not a.no_websites, limit=a.limit)
+    print(f"\n{res['facilities']} active plants -> {res['companies']} companies "
+          f"({res['known']} already seen). New this run: {res['new']} — "
+          f"{res['matched']} with a verified website (added to the pipeline), {res['unmatched']} without.")
+    if res["matched"] and not a.no_research:
+        print("Researching the new leads…")
+        cmd_cycle(conn, argparse.Namespace(limit=None, retry_errors=False, learn=False, top=a.top))
+
+
+def cmd_plan(conn, a):
+    print(forecast.render(forecast.plan(conn, load_policy())))
 
 
 def cmd_outcome(conn, a):
@@ -210,7 +246,8 @@ def main(argv=None):
     s.set_defaults(fn=cmd_email)
 
     s = sub.add_parser("today", help="daily plan: follow-ups due, new GOs with call openers, MAYBEs")
-    s.add_argument("--top", type=int, default=15), s.add_argument("--drafts", action="store_true")
+    s.add_argument("--top", type=int, help="override the quota from the customer plan")
+    s.add_argument("--drafts", action="store_true")
     s.add_argument("--phone", default=os.environ.get("TQL_PHONE", "[Phone]"))
     s.set_defaults(fn=cmd_today)
 
@@ -226,6 +263,20 @@ def main(argv=None):
     s = sub.add_parser("remove", help="delete leads entered by mistake (not for bad fits: use outcome)")
     s.add_argument("domains", nargs="+")
     s.set_defaults(fn=cmd_remove)
+
+    s = sub.add_parser("discover", help="find new shippers from EPA plant data (by state + industry)")
+    s.add_argument("--states", default="OH,KY,IN", help="comma list, e.g. GA,AL,FL")
+    s.add_argument("--profile", default="flatbed,reefer,dryvan", help="flatbed, reefer, dryvan (comma list)")
+    s.add_argument("--naics", help="exact NAICS codes instead of a profile, e.g. 332312,327390")
+    s.add_argument("--limit", type=int, help="max new companies this run")
+    s.add_argument("--top", type=int, default=25)
+    s.add_argument("--no-websites", action="store_true", help="just list companies, skip website lookup")
+    s.add_argument("--no-research", action="store_true")
+    s.add_argument("--unmatched", action="store_true", help="export companies with no website found (call list)")
+    s.set_defaults(fn=cmd_discover)
+
+    sub.add_parser("plan", help="customer plan: prospects needed for ~95% odds of a new customer, daily quota"
+                   ).set_defaults(fn=cmd_plan)
 
     s = sub.add_parser("terms", help="list learned terms (or --disable one)")
     s.add_argument("--disable")

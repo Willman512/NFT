@@ -215,3 +215,66 @@ class ContactRankTest(unittest.TestCase):
         from pipeline.report import ranked_contacts
         got = ranked_contacts(["Delbert Bland — President", "Julie Stewart — VP of HR", "Luke Smith — Logistics Manager"])
         self.assertEqual(got, ["Luke Smith — Logistics Manager", "Delbert Bland — President"])
+
+
+class DiscoverTest(unittest.TestCase):
+    FAC = [
+        {"FacName": "COOPER STEEL FABRICATORS INC", "FacCity": "SHELBYVILLE", "FacState": "TN", "FacZip": "37160",
+         "FacNAICSCodes": "332312"},
+        {"FacName": "Cooper Steel Fabricators, Inc.", "FacCity": "FLORENCE", "FacState": "KY", "FacZip": "41042",
+         "FacNAICSCodes": "332312"},
+        {"FacName": "COUNTY OF SHELBY ROAD DEPT", "FacCity": "X", "FacState": "TN", "FacZip": "1", "FacNAICSCodes": "332312"},
+    ]
+
+    def test_group_and_guess(self):
+        from pipeline.discover import domain_guesses, group_companies
+        cos = group_companies(self.FAC, ["332312"])
+        self.assertEqual(len(cos), 1)
+        self.assertEqual(len(cos[0]["plants"]), 2)
+        self.assertEqual(cos[0]["profile"], ["flatbed"])
+        self.assertIn("coopersteel.com", domain_guesses("Cooper Steel Fabricators Inc"))
+
+    def test_site_matches(self):
+        from pipeline.discover import site_matches
+        good = "<title>Cooper Steel</title><p>Cooper Steel, Shelbyville, Tennessee</p>"
+        self.assertTrue(site_matches(good, "Cooper Steel Fabricators Inc", "TN", ["Shelbyville"]))
+        self.assertFalse(site_matches("<p>Mack trucks. oh yes.</p>", "Mack Industries Inc", "OH", ["Valley City"]))
+        self.assertFalse(site_matches("<p>Cooper Steel domain is for sale Tennessee</p>", "Cooper Steel", "TN"))
+
+    def test_forecast_math(self):
+        from pipeline.forecast import beta_rate, prob_at_least_one, prospects_needed
+        self.assertEqual(prospects_needed(0.02, 0.95), 149)
+        self.assertGreater(prob_at_least_one(0.02, 149), 0.95)
+        self.assertAlmostEqual(beta_rate(0, 0, 0.02, 50), 0.02)
+        self.assertGreater(beta_rate(3, 50, 0.02, 50), 0.02)  # your wins raise the estimate
+
+    def test_discover_end_to_end(self):
+        from pipeline.discover import discover
+        tmp = tempfile.TemporaryDirectory()
+        conn = db.connect(os.path.join(tmp.name, "d.db"))
+
+        def fake_json(url):
+            if "get_facilities" in url:
+                return {"Results": {"QueryID": "1", "QueryRows": "3"}}
+            return {"Results": {"Facilities": self.FAC if "pageno=1" in url else []}}
+
+        def fake_page(url):
+            if "coopersteelfabricators.com" in url or "coopersteel.com" in url:
+                return url, "<title>Cooper Steel</title> Cooper Steel Fabricators — Shelbyville, Tennessee"
+            raise OSError("nope")
+
+        import pipeline.discover as d
+        orig = d._resolves
+        d._resolves = lambda dom: True
+        try:
+            res = discover(conn, ["TN"], ["332312"], get_json=fake_json, get_page=fake_page, log=lambda *_: None)
+        finally:
+            d._resolves = orig
+        self.assertEqual((res["companies"], res["matched"]), (1, 1))
+        row = conn.execute("SELECT * FROM prospects").fetchone()
+        self.assertIn("2 plant(s)", row["notes"])
+        self.assertIn("flatbed", row["meta"])
+        res2 = discover(conn, ["TN"], ["332312"], get_json=fake_json, get_page=fake_page, log=lambda *_: None)
+        self.assertEqual(res2["new"], 0)  # never re-adds a company it has seen
+        conn.close()
+        tmp.cleanup()

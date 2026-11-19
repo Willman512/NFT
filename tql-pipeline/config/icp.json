@@ -310,6 +310,38 @@
       "weight": 0.6,
       "label": "5+ locations found (steady multi-lane volume)",
       "computed": true
+    },
+    "naics_flatbed": {
+      "kind": "fit",
+      "weight": 0.9,
+      "label": "EPA-registered plant in a flatbed industry (steel, precast, lumber…)",
+      "computed": true
+    },
+    "naics_reefer": {
+      "kind": "fit",
+      "weight": 0.9,
+      "label": "EPA-registered plant in a reefer industry (frozen, meat, dairy…)",
+      "computed": true
+    },
+    "naics_dryvan": {
+      "kind": "fit",
+      "weight": 0.7,
+      "label": "EPA-registered plant in a dry-van industry (snacks, bev, packaging…)",
+      "computed": true
+    },
+    "growth": {
+      "kind": "fit",
+      "weight": 0.8,
+      "label": "Growing: new plant/expansion/hiring drivers — new lanes, carriers not locked in",
+      "patterns": [
+        "\\bnew (plant|facility|location|warehouse|distribution center|production line)\\b",
+        "\\bexpan(sion|ding|ded) (our|its|the)\\b",
+        "\\bgrand opening\\b",
+        "\\bground ?breaking\\b",
+        "\\bnow hiring\\b.{0,40}\\b(drivers?|cdl|warehouse|shipping)\\b",
+        "\\bincreas(ed|ing) (capacity|production)\\b",
+        "\\bnow open\\b"
+      ]
     }
   }
 }

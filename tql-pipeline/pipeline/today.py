@@ -40,8 +40,11 @@ def next_touch(row, policy):
     return min(row["touches"] + 1, max_touches)
 
 
-def plan(conn, policy, top=15, drafts=False, phone="[Phone]", today=None):
+def plan(conn, policy, top=None, drafts=False, phone="[Phone]", today=None):
+    from .forecast import plan as customer_plan, render
     today = today or dt.date.today()
+    cp = customer_plan(conn, policy, today)
+    top = top or max(cp["per_day"], 5)  # the quota sizes the day unless you override it
     due, finished = followups(conn, policy, today)
     cap = policy.get("max_new_contacts_per_day")
     n_new = min(top, cap) if cap else top
@@ -52,7 +55,7 @@ def plan(conn, policy, top=15, drafts=False, phone="[Phone]", today=None):
 
     out = [f"# Today — {today.isoformat()}", "",
            f"{len(due)} follow-ups due · {len(go)} new GO · {len(maybe)} MAYBE to check · "
-           f"{len(finished)} finished sequences", ""]
+           f"{len(finished)} finished sequences", "", render(cp), ""]
 
     out.append(f"## 1. Follow-ups due ({len(due)})")
     if not due:

@@ -98,13 +98,14 @@ def links_from_sitemap(xml, base_url, have, limit):
 class Fetcher:
     """HTTP fetcher. Swap `get` in tests with a dict-backed function."""
 
-    def __init__(self, policy, get=None):
+    def __init__(self, policy, get=None, retries=2):
         self.policy = policy
         self.delay = float(policy.get("min_seconds_between_requests", 1.5))
         self.timeout = float(policy.get("request_timeout_seconds", 15))
         self._last = 0.0
         self._robots = {}
         self._live = get is None
+        self.retries = retries
         self._get = get or self._http_get
 
     def _http_get(self, url):
@@ -156,7 +157,33 @@ class Fetcher:
         if wait > 0 and self._live:
             time.sleep(wait)
         self._last = time.time()
-        return self._get(url)
+        if not self._live:
+            return self._get(url)
+        last_err = None
+        for attempt in range(self.retries + 1):  # flaky networks: connection resets, proxy 502s
+            try:
+                return self._get(url)
+            except urllib.error.HTTPError as e:
+                if e.code in (502, 503, 504) and attempt < self.retries:
+                    last_err = e
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                raise
+            except urllib.error.URLError as e:
+                reason = str(e.reason)
+                if "CERTIFICATE_VERIFY_FAILED" in reason and url.startswith("https://"):
+                    # Site's own SSL setup is broken (missing intermediate cert). Public marketing pages only:
+                    # read the plain-http version instead of disabling verification.
+                    return self._get("http://" + url[len("https://"):])
+                if any(k in reason for k in ("reset", "502", "timed out")) and attempt < self.retries:
+                    last_err = e
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                raise
+            except (ConnectionResetError, TimeoutError) as e:
+                last_err = e
+                time.sleep(2 * (attempt + 1))
+        raise last_err
 
     def crawl(self, url):
         """Return list of {kind, url, html}. Home page first."""

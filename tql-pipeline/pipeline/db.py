@@ -25,7 +25,16 @@ CREATE TABLE IF NOT EXISTS prospects (
     touches       INTEGER DEFAULT 0,
     last_outcome  TEXT,
     last_outcome_at TEXT,
-    model_version INTEGER
+    model_version INTEGER,
+    meta          TEXT                     -- json from discovery (EPA plants, NAICS, profile)
+);
+CREATE TABLE IF NOT EXISTS discovered (
+    key      TEXT PRIMARY KEY,             -- normalized company name
+    name     TEXT,
+    plants   TEXT,                         -- json list "City, ST ZIP"
+    naics    TEXT,
+    website  TEXT,
+    found_at TEXT
 );
 CREATE TABLE IF NOT EXISTS outcomes (
     id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,7 +85,7 @@ def connect(path=None):
     if path is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         path = DATA_DIR / "prospects.db"
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=60, check_same_thread=False)  # discovery + research can overlap
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     _migrate(conn)
