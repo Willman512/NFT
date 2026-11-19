@@ -161,7 +161,7 @@ def cmd_discover(conn, a):
         naics = a.naics.split(",") if a.naics else [c for p in a.profile.split(",") for c in disc.PROFILES[p.strip()]]
         print(f"Searching EPA plant data: {len(states)} state(s) x {len(naics)} industries…")
         res = disc.discover(conn, states, naics, find_sites=not a.no_websites, limit=a.limit)
-    print(f"\n{res['facilities']} active plants -> {res['companies']} companies "
+    print(f"\n{(str(res['facilities']) + ' active plants -> ') if res['facilities'] else ''}{res['companies']} companies "
           f"({res['known']} already seen, {res.get('fleet_dropped', 0)} dropped for their own FMCSA fleet). "
           f"New this run: {res['new']} — "
           f"{res['matched']} with a verified website (added to the pipeline), {res['unmatched']} without.")
