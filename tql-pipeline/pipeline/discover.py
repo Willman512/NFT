@@ -236,7 +236,20 @@ def process_companies(conn, companies, states, summary=None, get_page=None, find
         log(f"  FMCSA download failed ({type(e).__name__}); fleet check will run at research time instead")
     summary["fleet_dropped"] = 0
     keep = []
+    dot_trucks = {}
+    if any(c.get("dot") for c in fresh):  # forwarders: exact USDOT truck counts, private or for-hire
+        try:
+            dot_trucks = fmcsa.trucks_by_dot(conn, [c["dot"] for c in fresh if c.get("dot")])
+        except Exception as e:
+            log(f"  USDOT truck lookup failed ({type(e).__name__}); checked again at research time")
     for c in fresh:
+        d = dot_trucks.get(c.get("dot") or "")
+        if d and d["power_units"] >= min_units:
+            conn.execute("INSERT OR REPLACE INTO discovered(key, name, plants, naics, website, found_at) VALUES (?,?,?,?,?,?)",
+                         (c["key"], c["name"], json.dumps(c["plants"]), "[]",
+                          f"fleet:USDOT {c['dot']} ({d['power_units']} trucks)", now_iso()))
+            summary["fleet_dropped"] += 1
+            continue
         sts = sorted({p.split(", ")[1][:2] for p in c["plants"] if ", " in p})
         regs = [r for r in fmcsa.match(conn, c["name"], sts, [p.split(",")[0] for p in c["plants"]])
                 if r["power_units"] >= min_units]
@@ -272,6 +285,8 @@ def process_companies(conn, companies, states, summary=None, get_page=None, find
                 meta["phone"] = c["phone"]
             if c.get("docket"):
                 meta["docket"] = c["docket"]
+            if c.get("dot"):
+                meta["dot"] = c["dot"]
             conn.execute("INSERT OR REPLACE INTO discovered(key, name, plants, naics, website, found_at) "
                          "VALUES (?,?,?,?,?,?)", (c["key"], c["name"], json.dumps(c["plants"]), json.dumps(c["naics"]),
                                                   url, now_iso()))
@@ -311,7 +326,7 @@ def fmcsa_forwarders(states, get=None):
     get = get or _get
     sts = ",".join(f"'{s}'" for s in states)
     qs = urllib.parse.urlencode({
-        "$limit": 5000, "$select": "docket_number,legal_name,dba_name,bus_street_po,bus_city,bus_state_code,bus_zip_code,bus_telno",
+        "$limit": 5000, "$select": "docket_number,dot_number,legal_name,dba_name,bus_street_po,bus_city,bus_state_code,bus_zip_code,bus_telno",
         "$where": f"starts_with(docket_number,'FF') AND (common_stat='A' OR contract_stat='A') AND hhg_chk='N' "
                   f"AND property_chk='Y' AND bus_state_code in ({sts})"})
     return get(LICENSING + "?" + qs)
@@ -328,6 +343,7 @@ def forwarder_companies(rows):
         plant = f"{(r.get('bus_city') or '').title()}, {r.get('bus_state_code')} {(r.get('bus_zip_code') or '')[:5]}".strip()
         c = out.setdefault(key, {"name": name.title(), "key": key, "plants": [], "naics": [], "profile": ["forwarder"],
                                  "source": "fmcsa-forwarder", "docket": r.get("docket_number"),
+                                 "dot": str(int(r["dot_number"])) if (r.get("dot_number") or "").strip("0") else "",
                                  "phone": f"({tel[:3]}) {tel[3:6]}-{tel[6:10]}" if len(tel) == 10 else ""})
         if plant not in c["plants"]:
             c["plants"].append(plant)

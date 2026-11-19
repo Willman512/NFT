@@ -123,3 +123,22 @@ def match(conn, name, states, cities=()):
 
 def states_checked(conn):
     return {r["state"] for r in conn.execute("SELECT state FROM fmcsa_states")}
+
+
+def trucks_by_dot(conn, dots, get=_get):
+    """Power units registered to exact USDOT numbers (any class: private or for-hire). Cached in fmcsa_dot."""
+    dots = sorted({str(int(d)) for d in dots if d and str(d).strip("0")})
+    have = {r["dot"]: r for r in conn.execute("SELECT * FROM fmcsa_dot")}
+    todo = [d for d in dots if d not in have]
+    for i in range(0, len(todo), 80):
+        chunk = todo[i:i + 80]
+        qs = urllib.parse.urlencode({"$select": "dot_number,legal_name,classdef,power_units,status_code", "$limit": 1000,
+                                     "$where": "dot_number in (" + ",".join(f"'{d}'" for d in chunk) + ")"})
+        rows = get(CENSUS + "?" + qs)
+        found = {str(int(r["dot_number"])): r for r in rows}
+        conn.executemany("INSERT OR REPLACE INTO fmcsa_dot(dot, power_units, classdef, status, name) VALUES (?,?,?,?,?)",
+                         [(d, int((found.get(d) or {}).get("power_units") or 0), (found.get(d) or {}).get("classdef", ""),
+                           (found.get(d) or {}).get("status_code", ""), (found.get(d) or {}).get("legal_name", ""))
+                          for d in chunk])
+        conn.commit()
+    return {r["dot"]: r for r in conn.execute("SELECT * FROM fmcsa_dot")}

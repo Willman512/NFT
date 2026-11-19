@@ -33,6 +33,9 @@ CARRIER_LANG = re.compile(
     r"prepaid|collect|allowed)\b|\bcommon carrier\b|\bcarrier of (your|the customer's) choice\b|\bf\.?o\.?b\.?\b|"
     r"\bship(ped|s)? (via|by) (truck|common carrier|freight|ltl)\b|\bthird[- ]party (carriers?|freight|trucking)\b|"
     r"\bfreight (is|will be) (arranged|quoted)\b|\bwe (can )?arrange (freight|shipping|delivery)\b", re.I)
+INTERNATIONAL = re.compile(r"\bcustoms brok(er|erage)\b|\bimport(s|ing)?\s*(/|and|&)\s*export|\bocean freight\b|"
+                           r"\bair freight\b|\binternational (freight|shipping|logistics|trade)\b|\bcross[- ]border\b|"
+                           r"\bnvocc?\b|\b(fcl|lcl)\b|\bport of\b", re.I)
 LOCAL_ONLY = re.compile(r"\b(local delivery only|deliver(y|ing)? within \d+ miles|within a \d+[- ]mile radius)\b", re.I)
 MULTI_STATE = re.compile(r"\b(ship|deliver|serv|distribut|sell)\w* (to |products )?(customers |dealers )?"
                          r"(in |across |throughout )(all )?(\d+|fifty|several|multiple) states\b|\bnationwide\b|"
@@ -60,7 +63,11 @@ def evaluate(conn, row, text, research, features, meta, policy):
     site_fleet = OWN_FLEET.search(text or "")
     regs = [r for r in fmcsa.match(conn, row["name"] or "", sorted(states), cities) if r["power_units"] >= min_units]
     checked = states and states <= fmcsa.states_checked(conn)
-    if regs:
+    dot = meta.get("dot")
+    dot_row = conn.execute("SELECT * FROM fmcsa_dot WHERE dot=?", (dot,)).fetchone() if dot else None
+    if dot_row and dot_row["power_units"] >= min_units:
+        fleet = ("fail", f"FMCSA: their own USDOT {dot} has {dot_row['power_units']} trucks ({(dot_row['classdef'] or '').title()})")
+    elif regs:
         r = max(regs, key=lambda x: x["power_units"])
         fleet = ("fail", f"FMCSA: USDOT {r['dot']} ({r['classdef'].title()}), {r['power_units']} trucks registered in {r['state']}")
     elif site_fleet:
@@ -74,12 +81,15 @@ def evaluate(conn, row, text, research, features, meta, policy):
     xborder = research.get("ca_locations") or any(m.lower() not in ("mexico", "méxico") for m in research.get("mx_mentions", []))
     multi = MULTI_STATE.search(text or "")
     named = {s for s in STATE_NAMES if re.search(r"\b" + s + r"\b", text or "")}
+    intl = (features.get("forwarder") or features.get("naics_forwarder")) and INTERNATIONAL.search(text or "")
     if len(states) >= 2:
         inter = ("pass", f"Locations in {len(states)} states: {', '.join(sorted(states))}")
     elif xborder:
         inter = ("pass", "Locations or customers in Canada/Mexico")
     elif multi:
         inter = ("pass", f"Site: \"{multi.group(0)}\"")
+    elif intl:
+        inter = ("pass", f"International freight (more than interstate): site says \"{intl.group(0)}\"")
     elif len(named) >= 3 and not LOCAL_ONLY.search(text or ""):
         inter = ("pass", f"Site names {len(named)} states/provinces it works in ({', '.join(sorted(named)[:5])}…)")
     elif LOCAL_ONLY.search(text or ""):

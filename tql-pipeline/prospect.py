@@ -76,6 +76,7 @@ def cmd_research(conn, a):
                          "AND status IN ('researched','queued','skipped','error')")
             conn.commit()
         print(research_pending(conn, icp, policy, limit=a.limit, retry_errors=a.retry_errors))
+    gate_all(conn, policy, log=lambda *_: None)  # downloads FMCSA data for any new states, then checks requirements
     apply_filters(conn, policy)
 
 

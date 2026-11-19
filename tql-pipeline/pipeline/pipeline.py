@@ -187,6 +187,9 @@ def gate_all(conn, policy=None, fetch_fmcsa=True, log=print):
             states |= _states(jload(r["research"], {}))
             states |= {p.split(", ")[1][:2] for p in jload(r["meta"], {}).get("plants", []) if ", " in p}
         try:
+            dots = [jload(r["meta"], {}).get("dot") for r in rows]
+            if any(dots):
+                fmcsa.trucks_by_dot(conn, dots)
             fmcsa.ensure_states(conn, states, log=log)
         except Exception as e:  # network trouble: gates stay "unknown" and those leads are held, never let through
             log(f"  FMCSA download failed ({type(e).__name__}: {e}). Unchecked leads stay held.")

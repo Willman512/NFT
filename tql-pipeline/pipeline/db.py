@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS fmcsa (          -- FMCSA census: active fleets with 
 );
 CREATE INDEX IF NOT EXISTS fmcsa_name ON fmcsa(name_key);
 CREATE INDEX IF NOT EXISTS fmcsa_dba ON fmcsa(dba_key);
+CREATE TABLE IF NOT EXISTS fmcsa_dot (dot TEXT PRIMARY KEY, power_units INTEGER, classdef TEXT, status TEXT, name TEXT);
 CREATE TABLE IF NOT EXISTS fmcsa_states (state TEXT PRIMARY KEY, fetched_at TEXT, n INTEGER);
 CREATE TABLE IF NOT EXISTS discovered (
     key      TEXT PRIMARY KEY,             -- normalized company name

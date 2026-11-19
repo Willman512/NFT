@@ -422,6 +422,24 @@ class ForwarderTest(unittest.TestCase):
         self.assertEqual(v, "GO")
         self.assertTrue(any("FORWARDER" in r and "manager" in r for r in reasons))
 
+    def test_customs_broker_is_international(self):
+        from pipeline.qualify import evaluate
+        conn = db.connect(":memory:")
+        conn.execute("INSERT INTO fmcsa_states VALUES ('TX','2099-01-01T00:00:00',0)")
+        g = evaluate(conn, {"name": "Border Customs Brokers"}, "Licensed customs broker in Laredo. Import / export clearance.",
+                     {"us_locations": ["Laredo, TX 78041"]}, {"forwarder": 1}, {}, load_policy())
+        self.assertTrue(g["qualified"], g)
+
+    def test_forwarder_own_usdot_trucks_fail(self):
+        from pipeline.qualify import evaluate
+        conn = db.connect(":memory:")
+        conn.execute("INSERT INTO fmcsa_states VALUES ('FL','2099-01-01T00:00:00',0)")
+        conn.execute("INSERT INTO fmcsa_dot VALUES ('1397252', 1324, 'AUTHORIZED FOR HIRE', 'A', 'PODS')")
+        g = evaluate(conn, {"name": "Pods"}, "Ocean freight forwarder nationwide.", {"us_locations": ["Clearwater, FL 33760"]},
+                     {"forwarder": 1}, {"dot": "1397252"}, load_policy())
+        self.assertEqual(g["fleet"][0], "fail")
+        self.assertIn("1324 trucks", g["fleet"][1])
+
     def test_fmcsa_forwarder_rows(self):
         from pipeline.discover import forwarder_companies
         rows = [{"docket_number": "FF1", "legal_name": "ACME FORWARDING INC", "bus_city": "ATLANTA", "bus_state_code": "GA",
