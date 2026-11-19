@@ -162,3 +162,56 @@ class FollowupTest(PipelineTest):
         due, finished = followups(self.conn, self.policy, dt.date(2026, 1, 20))
         self.assertEqual(due, [])
         self.assertEqual(finished[0][0]["domain"], "steelco.test")
+
+
+class ExtractionTest(unittest.TestCase):
+    def test_tel_links_city_state_and_thin(self):
+        from pipeline.extract import extract
+        icp = load_icp()
+        html = page("Ohio Mulch", '<p>17 Locations in Columbus, Ohio and South Georgia.</p>'
+                    '<a href="tel:614-445-4455">Call</a><p>Ecommerce Software by Shopify</p>')
+        research, f, _ = extract([{"kind": "home", "url": "https://m.test", "html": html}], icp["signals"])
+        self.assertIn("(614) 445-4455", research["phones"])
+        self.assertIn("Columbus, OH", research["us_locations"])
+        self.assertEqual(f["service_only"], 0)
+        self.assertEqual(f["no_na_presence"], 0)
+        _, f2, _ = extract([{"kind": "home", "url": "https://js.test", "html": "<html><body><div id=app></div></body></html>"}],
+                           icp["signals"])
+        self.assertEqual((f2["thin_site"], f2["no_na_presence"]), (1, 0))
+
+    def test_foreign_flag(self):
+        from pipeline.extract import extract
+        html = page("Widgets GmbH", "<p>We manufacture widgets in Germany. Call +49 30 1234567.</p>" + "x " * 50)
+        _, f, _ = extract([{"kind": "home", "url": "https://w.test", "html": html}], load_icp()["signals"])
+        self.assertEqual(f["no_na_presence"], 1)
+
+
+class QualityTest(unittest.TestCase):
+    def test_city_person_subject(self):
+        from pipeline.extract import _clean_city, _is_person
+        from pipeline.email import _fit_subject
+        self.assertEqual(_clean_city("100 Steel View Drive Roanoke"), "Roanoke")
+        self.assertFalse(_is_person("High Industries"))
+        self.assertTrue(_is_person("Dane Haskins"))
+        self.assertEqual(_fit_subject("flatbeds out of {city}", "Seven Mile, OH", "x"), "flatbeds out of seven mile")
+        self.assertEqual(_fit_subject("flatbeds out of {city}", "Tiffin, OH", "x"), "flatbeds out of tiffin oh")
+
+
+class SkipRuleTest(unittest.TestCase):
+    def test_freight_signal_never_skipped(self):
+        from pipeline.score import score
+        icp, policy = load_icp(), load_policy()
+        model = {"version": 0, "bias": -5.0, "weights": {"reefer": 1.0}, "go": 0.6, "skip": 0.35}
+        v, _, _ = score({"reefer": 1}, {}, model, icp, policy)
+        self.assertEqual(v, "MAYBE")
+        v, _, _ = score({"reefer": 1, "service_only": 1}, {}, model, icp, policy)
+        self.assertEqual(v, "SKIP")
+        v, _, _ = score({}, {}, model, icp, policy)
+        self.assertEqual(v, "SKIP")
+
+
+class ContactRankTest(unittest.TestCase):
+    def test_rank(self):
+        from pipeline.report import ranked_contacts
+        got = ranked_contacts(["Delbert Bland — President", "Julie Stewart — VP of HR", "Luke Smith — Logistics Manager"])
+        self.assertEqual(got, ["Luke Smith — Logistics Manager", "Delbert Bland — President"])

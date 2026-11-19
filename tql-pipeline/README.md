@@ -13,9 +13,14 @@ cd tql-pipeline
 python prospect.py add https://acme-steel.com https://frostfarms.com   # or: add leads.csv
 python prospect.py cycle                 # research → rescore → filter → show queue
 python prospect.py card acme-steel.com   # full research card (verdict, snapshot, contact, sources)
-python prospect.py email acme-steel.com --phone "(513) 555-0000"
+python prospect.py today --drafts        # the day's plan: follow-ups due, new GOs with call openers + emails
+python prospect.py email acme-steel.com --phone "(513) 555-0000"   # next email in the sequence
 python prospect.py outcome acme-steel.com contacted
 ```
+
+Set your phone once so every draft is signed: `export TQL_PHONE="(513) 555-0000"` (Windows: `set TQL_PHONE=...`).
+
+Starter leads are in `leads/`. Load them with `python prospect.py add leads/seed-2026-11-19.csv leads/seed-2026-11-19-batch2.csv`, then run `cycle`.
 
 A leads CSV needs a `url` (or `website` / `domain`) column. The `name`, `source` and `notes` columns are optional. Google redirect links are unwrapped, and duplicates are dropped by domain.
 
@@ -28,9 +33,12 @@ add leads ─► research ─► score ─► filter ─► queue ─► you cal
    └──── suggest (lookalike searches from what's winning) ◄────────────────────────┘
 ```
 
-1. `python prospect.py cycle --learn` each morning. Add `--retry-errors` to retry sites that were down.
-2. Work the `queue`, starting with GO. Read the ⚑ flags first.
-3. Log every result: `python prospect.py outcome <domain> <outcome>`
+1. `python prospect.py cycle --learn --retry-errors` each morning.
+2. `python prospect.py today --drafts`: follow-ups due first, then new GOs. **Call first** using the opener, then send the email.
+   Read the ⚑ flags and do the CRM ownership check before every first contact.
+3. Log every result: `python prospect.py outcome <domain> <outcome>`. Each email or call is `contacted`.
+4. Follow-ups are automatic. Touch 2 comes up 3 days after touch 1 and touch 3 comes up 7 days after touch 2 (`followup_days`), and `email <domain>` drafts the right one.
+   After touch 3, `today` reminds you to log `no_response`.
 
 | Outcome | Effect |
 |---|---|
@@ -51,6 +59,14 @@ add leads ─► research ─► score ─► filter ─► queue ─► you cal
 - **New leads:** `suggest` writes Google search strings from your best signals and the states your wins came from.
 
 Every model version is saved in `data/prospects.db` (`models` table), so you can always see what changed.
+
+## Verdict rules
+
+- **GO**: the fit score clears the GO bar and there are no caps.
+- **MAYBE**: the score is in the middle, or a cap applies: broker/3PL, overseas-only, stale site, unreadable (JavaScript-only) site.
+- **SKIP**: only for companies with **no** freight evidence at all, or a service business. A real shipper with a thin website stays MAYBE, because missing a customer costs more than a minute of checking.
+
+Other commands: `research --all` re-crawls every uncontacted lead (after you tune `icp.json`), and `remove <domain>` deletes a lead entered by mistake.
 
 ## Policy guardrails (`config/policy.json`)
 

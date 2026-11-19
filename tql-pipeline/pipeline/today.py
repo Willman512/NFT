@@ -4,6 +4,7 @@ import datetime as dt
 from .config import OUTPUT_DIR
 from .db import jload
 from .email import call_opener, draft
+from .report import ranked_contacts
 
 
 def _days_since(iso, today):
@@ -74,8 +75,9 @@ def plan(conn, policy, top=15, drafts=False, phone="[Phone]", today=None):
         why = "; ".join(x[2:] for x in reasons if x.startswith("+"))[:160]
         out.append(f"### {i}. {r['name'] or r['domain']} — {r['domain']} (fit {r['score']:.2f})")
         out.append(f"- Why: {why}")
-        out.append(f"- Call: {', '.join(res.get('phones', [])[:2]) or 'no phone on site'}"
-                   + (f" · ask for {res['contacts'][0]}" if res.get("contacts") else ""))
+        best = ranked_contacts(res.get("contacts", []))
+        out.append(f"- Call: {', '.join(res.get('phones', [])[:2]) or 'no phone on site (check Google Maps)'}"
+                   + (f" · ask for {best[0]}" if best else " · ask who handles transportation"))
         out.append(f"- Opener: {call_opener(r)}")
         flags = [x for x in reasons if not x.startswith(("+", "-"))]
         if any("RED FLAG" in x or "stale" in x for x in flags):

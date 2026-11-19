@@ -66,6 +66,10 @@ def cmd_research(conn, a):
                 add_lead(conn, d)
             print(f"{dom}: {research_one(conn, dom, icp, policy, f)}")
     else:
+        if a.all:  # re-crawl everyone not yet contacted (e.g. after improving extraction)
+            conn.execute("UPDATE prospects SET status='new' WHERE touches=0 AND last_outcome IS NULL "
+                         "AND status IN ('researched','queued','skipped','error')")
+            conn.commit()
         print(research_pending(conn, icp, policy, limit=a.limit, retry_errors=a.retry_errors))
     apply_filters(conn, policy)
 
@@ -137,6 +141,16 @@ def cmd_learn(conn, a):
     print(apply_filters(conn))
 
 
+def cmd_remove(conn, a):
+    """Delete a lead entered by mistake (wrong domain, typo). Use `outcome … bad_fit` for real bad fits."""
+    for d in a.domains:
+        dom = normalize_domain(d)
+        n = conn.execute("DELETE FROM prospects WHERE domain=?", (dom,)).rowcount
+        conn.execute("DELETE FROM outcomes WHERE domain=?", (dom,))
+        print(f"{dom}: {'removed' if n else 'not found'}")
+    conn.commit()
+
+
 def cmd_terms(conn, a):
     if a.disable:
         conn.execute("UPDATE learned_terms SET active=0 WHERE term=?", (a.disable,))
@@ -178,6 +192,7 @@ def main(argv=None):
 
     s = sub.add_parser("research", help="research pending leads, or specific domains (re-research)")
     s.add_argument("domains", nargs="*"), s.add_argument("--limit", type=int)
+    s.add_argument("--all", action="store_true", help="re-crawl every lead you haven't contacted yet")
     s.add_argument("--retry-errors", action="store_true")
     s.set_defaults(fn=cmd_research)
 
@@ -207,6 +222,10 @@ def main(argv=None):
     s.add_argument("--adopt-terms", type=int, default=0, help="turn the top N mined terms into scoring signals")
     s.add_argument("--note")
     s.set_defaults(fn=cmd_learn)
+
+    s = sub.add_parser("remove", help="delete leads entered by mistake (not for bad fits: use outcome)")
+    s.add_argument("domains", nargs="+")
+    s.set_defaults(fn=cmd_remove)
 
     s = sub.add_parser("terms", help="list learned terms (or --disable one)")
     s.add_argument("--disable")

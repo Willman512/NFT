@@ -125,15 +125,29 @@ class Fetcher:
         p = urlparse(url)
         root = f"{p.scheme}://{p.netloc}"
         if root not in self._robots:
-            rp = urllib.robotparser.RobotFileParser()
-            rp.set_url(root + "/robots.txt")
-            try:
-                rp.read()
-            except Exception:
-                rp = None  # unreachable robots.txt -> treat as allowed
-            self._robots[root] = rp
+            self._robots[root] = self._load_robots(root)
         rp = self._robots[root]
         return rp is None or rp.can_fetch(USER_AGENT, url)
+
+    def _load_robots(self, root):
+        """RFC 9309: 4xx = no rules (allowed); 5xx/unreachable = disallow for now (retry later).
+        Python's stock reader asks with a 'Python-urllib' agent that firewalls 403, then wrongly blocks everything."""
+        rp = urllib.robotparser.RobotFileParser()
+        try:
+            req = urllib.request.Request(root + "/robots.txt", headers={"User-Agent": USER_AGENT})
+            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                rp.parse(resp.read(500_000).decode("utf-8", errors="replace").splitlines())
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500:
+                return None
+            rp.disallow_all = True
+            return rp
+        except (urllib.error.URLError, OSError, ValueError):
+            return None  # main request will surface the real network error
+        delay = rp.crawl_delay(USER_AGENT)
+        if delay:
+            self.delay = max(self.delay, min(float(delay), 30.0))
+        return rp
 
     def get(self, url):
         if not self.allowed(url):

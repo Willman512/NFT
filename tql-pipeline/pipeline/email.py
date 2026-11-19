@@ -10,10 +10,10 @@ ANGLES = [
      "We cover flatbed, step deck, and heavy haul with 110,000+ vetted carriers.", "flatbed loads"),
     ("reefer", "reefer loads out of {city}", "keeping reefer trucks on time matters a lot when loads can't sit",
      "We run reefer every day, with a team up 24/7 if a truck runs late.", "reefer loads"),
-    ("cross_border", "loads into mexico and canada", "moving freight across the border takes more calls than it should",
-     "Our Monterrey team handles Mexico loads, and we cross into Canada daily.", "cross-border loads"),
     ("retail_dealers", "getting trucks to {customers}", "hitting tight delivery windows for your {customers} keeps you busy",
      "We move truckload and LTL into retail DCs, with live tracking in TQL TRAX.", "retail deliveries"),
+    ("cross_border", "loads into mexico and canada", "moving freight across the border takes more calls than it should",
+     "Our Monterrey team handles Mexico loads, and we cross into Canada daily.", "cross-border loads"),
     ("hazmat", "hazmat loads out of {city}", "finding good hazmat carriers is not easy",
      "We have vetted hazmat carriers and a claims team if anything goes wrong.", "hazmat loads"),
     ("distributor", "extra trucks out of {city}", "your usual carriers get tight when orders spike",
@@ -27,9 +27,10 @@ BANNED = ["dedicated contact", "right in our wheelhouse", "hope this finds you w
           "circle back", "synergy", "you get me", "roi"]
 
 
-def _snippet(detail, max_words=6):
+def _snippet(detail, max_words=8):
+    """Quote a whole short phrase or nothing (a cut-off quote reads like a bot)."""
     words = re.sub(r"[\"“”]", "", detail).split()
-    return " ".join(words[:max_words]).rstrip(".,;:!-–—")
+    return " ".join(words).rstrip(".,;:!-–—") if len(words) <= max_words else ""
 
 
 def _first_name(contacts):
@@ -40,16 +41,45 @@ def _first_name(contacts):
     return None
 
 
+def _fit_subject(template, city, customers):
+    """3-5 words, lowercase. Drop the state, then the city, if it runs long."""
+    for place in (city.replace(",", ""), city.split(",")[0], "your plant"):
+        s = template.format(city=place.lower() or "your plant", customers=customers).lower()
+        if len(s.split()) <= 5:
+            return s
+    return s
+
+
 def context(row):
     r = jload(row["research"], {})
     f = jload(row["features"], {})
-    _, subj, pain, capability, freight = next((a for a in ANGLES if f.get(a[0])), DEFAULT)
+    hits = r.get("signal_hits", {})
+    # Saying "Canada" or "Mexico" once isn't a cross-border shipper; a Mexican city/state or "cross-border" is.
+    real_xborder = any("cross" in h.lower() for h in hits.get("cross_border", [])) \
+        or any(m.lower() not in ("mexico", "méxico") for m in r.get("mx_mentions", []))
+    # Food/reefer companies mention "stainless steel" etc.; don't pitch them flatbeds.
+    foodish = f.get("food_producer")
+
+    def usable(a):
+        if not f.get(a[0]):
+            return False
+        if a[0] == "cross_border":
+            return real_xborder
+        if a[0] == "flatbed_oversize" and foodish:
+            return False
+        if a[0] == "reefer" and f.get("flatbed_oversize") and not f.get("food_producer"):
+            return False  # e.g. precast plants with temperature-controlled curing
+        return True
+    _, subj, pain, capability, freight = next((a for a in ANGLES if usable(a)), DEFAULT)
     locs = r.get("us_locations", []) + r.get("ca_locations", [])
-    city = locs[0].split(",")[0].strip() if locs else ""
+    city = ""
+    if locs:
+        c, _, rest = locs[0].partition(",")
+        city = f"{c.strip()}, {rest.split()[0]}" if rest.split() else c.strip()
     customers = "dealers" if "dealer" in " ".join(r.get("signal_hits", {}).get("retail_dealers", [])).lower() else "retailers"
     first = _first_name(r.get("contacts", []))
     return {
-        "subject": subj.format(city=city.lower() or "your plant", customers=customers).lower(),
+        "subject": _fit_subject(subj, city, customers),
         "pain": pain.format(customers=customers), "capability": capability, "freight": freight,
         "city": city, "first": first, "french": bool(f.get("french_site")),
         "snippet": _snippet(r["detail"]) if r.get("detail") else "",

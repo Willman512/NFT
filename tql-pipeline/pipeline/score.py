@@ -4,6 +4,10 @@ import math
 from .db import latest_model
 
 
+CORE_FREIGHT = ("manufacturer", "distributor", "food_producer", "flatbed_oversize", "reefer", "palletized",
+                "controls_delivery")
+
+
 def current_model(conn, icp):
     """Latest learned model, or the starting weights from config/icp.json."""
     row = latest_model(conn)
@@ -42,6 +46,11 @@ def score(features, research, model, icp, policy):
 
     verdict = "GO" if p >= model["go"] else "SKIP" if p < model["skip"] else "MAYBE"
     flags = []
+    # Missing a real shipper costs more than a minute of checking: SKIP only when there's no freight evidence
+    # at all, or a hard red flag (service business). Thin evidence with a real freight signal stays MAYBE.
+    if verdict == "SKIP" and any(features.get(k) for k in CORE_FREIGHT) and not features.get("service_only"):
+        verdict = "MAYBE"
+        flags.append("Few signals on the site, but it does show real freight. Take a quick look by hand.")
 
     # Policy caps: these never get a clean GO no matter how good the score looks.
     if features.get("broker_3pl"):
@@ -53,6 +62,11 @@ def score(features, research, model, icp, policy):
         flags.append("RED FLAG: no US/Canada/Mexico address or phone found — may be overseas-only (ocean/air only).")
         if verdict == "GO":
             verdict = "MAYBE"
+    if features.get("thin_site"):
+        flags.append("Couldn't read the site (JavaScript-heavy or blocked). Open it in a browser and judge by hand.")
+        verdict = "MAYBE"
+    if features.get("contact_info_missing"):
+        flags.append("No phone or address on the site: get them from Google Maps before calling.")
     if features.get("stale_site"):
         flags.append(f"Site may be stale (© {research.get('copyright_year')}). Call the main line first.")
         if verdict == "GO":

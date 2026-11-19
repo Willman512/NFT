@@ -6,7 +6,28 @@ from .config import OUTPUT_DIR
 from .db import jload
 from .util import today
 
-FREIGHT_ROLES = ("logistics", "shipping", "traffic", "transportation", "supply chain", "distribution", "warehouse")
+FREIGHT_ROLES = ("logistics", "shipping", "traffic", "transportation", "supply chain", "distribution", "warehouse",
+                 "operations", "dispatch")
+
+
+NOT_FREIGHT_ROLES = ("hr", "human resources", "marketing", "finance", "accounting", "communications", "it ", "technology",
+                     "legal", "counsel", "people", "talent", "recruit")
+
+
+def ranked_contacts(contacts):
+    """Freight/logistics roles first, then operations, then owner/president/CEO. Drops HR, marketing, finance…"""
+    def rank(c):
+        title = " " + c.partition(" — ")[2].lower() + " "
+        if any(k in title for k in ("logistics", "shipping", "traffic", "transportation", "dispatch", "supply chain",
+                                    "distribution", "warehouse")):
+            return 0
+        if "operations" in title or "plant" in title or "purchasing" in title:
+            return 1
+        if any(k in title for k in ("owner", "president", "ceo", "coo", "general manager")):
+            return 2
+        return 3
+    keep = [c for c in contacts if not any(k in " " + c.partition(" — ")[2].lower() + " " for k in NOT_FREIGHT_ROLES)]
+    return sorted(keep, key=rank)
 
 
 def card(row):
@@ -37,7 +58,7 @@ def card(row):
         out.append("- Evidence: " + "; ".join(f"{k}: {', '.join(v)}" for k, v in list(hits.items())[:6]))
 
     out.append("\n**Who to contact:**")
-    contacts = r.get("contacts", [])
+    contacts = ranked_contacts(r.get("contacts", []))
     if contacts:
         out += [f"- {c}" for c in contacts]
     else:
