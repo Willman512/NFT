@@ -378,3 +378,26 @@ class GateTest(PipelineTest):
             self.assertTrue(OWN_FLEET.search(t), t)
         self.assertFalse(OWN_FLEET.search("We ship by LTL and truckload carriers nationwide"))
         self.assertFalse(OWN_FLEET.search("Our Trailers are built to last"))   # product, not a fleet
+        for t in ["500+ company-owned routes", "Direct Store Delivery", "route sales representatives"]:
+            self.assertTrue(OWN_FLEET.search(t), t)
+
+    def test_possessive_name_matches_fmcsa(self):
+        from pipeline import fmcsa
+        self.conn.execute("INSERT INTO fmcsa VALUES ('PA','herr foods','','NOTTINGHAM','1','PRIVATE PROPERTY',90,1)")
+        self.assertEqual(len(fmcsa.match(self.conn, "Herr's", ["PA"], ["Nottingham"])), 1)
+        self.assertEqual(len(fmcsa.match(self.conn, "Herr's", ["PA"], ["Lancaster"])), 0)  # needs the same city
+
+    def test_trucking_subsidiary_and_hq_state(self):
+        from pipeline import fmcsa
+        self.conn.execute("INSERT INTO fmcsa VALUES ('PA','utztran','','HANOVER','2','PRIVATE PROPERTY',47,1)")
+        self.conn.execute("INSERT INTO fmcsa VALUES ('OH','unverferth mfg','','KALIDA','3','PRIVATE PROPERTY',19,1)")
+        self.assertEqual(len(fmcsa.match(self.conn, "Utz Quality Foods", ["PA"], [])), 1)
+        self.assertEqual(len(fmcsa.match(self.conn, "Unverferth", ["IA", "GA"], [])), 1)
+        self.assertEqual(len(fmcsa.match(self.conn, "Utz Quality Foods", ["OH"], [])), 0)
+
+    def test_no_false_matches(self):
+        from pipeline import fmcsa
+        self.conn.execute("INSERT INTO fmcsa VALUES ('OH','ohio cat','','COLUMBUS','4','PRIVATE PROPERTY',1875,1)")
+        self.conn.execute("INSERT INTO fmcsa VALUES ('MT','mikesell sales service','','HELENA','5','PRIVATE PROPERTY',4,1)")
+        self.assertEqual(fmcsa.match(self.conn, "Ohio Steel Industries", ["OH"], ["Columbus"]), [])
+        self.assertEqual(fmcsa.match(self.conn, "Mikesell's", ["OH"], ["Dayton"]), [])

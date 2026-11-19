@@ -21,7 +21,13 @@ OWN_FLEET = re.compile(
     r"\bfleet of (over |more than )?\d+\b|\bcompany[- ](owned )?(trucks|drivers|fleet)\b|\bwe deliver (it )?(ourselves|"
     r"with our own)\b|\b(cdl|class a|truck) drivers? (wanted|needed|positions?|jobs?|openings?)\b|"
     r"\b(hiring|now hiring|join our team as an?) (cdl |class a |local |otr |regional )?(truck )?drivers?\b|"
-    r"\bdriver (positions?|openings?|careers?)\b|\bin-house (trucking|transportation|fleet)\b", re.I)
+    r"\bdriver (positions?|openings?|careers?)\b|\bin-house (trucking|transportation|fleet)\b|"
+    # route delivery: snack, bread and beverage companies that deliver to stores on their own trucks
+    r"\bdirect[- ]store[- ]deliver(y|ies)\b|\bDSD\b|\bcompany[- ]owned (delivery )?routes\b|"
+    r"\b\d{2,} (company[- ]owned |delivery |sales )?routes\b|\broute (sales|drivers?|trucks?)\b|"
+    r"\b(our|company) (route|delivery) (trucks|drivers|sales reps?)\b|\bdelivery routes?\b|"
+    # beer/beverage wholesalers deliver on their own trucks as standard practice
+    r"\b(beer|beverage|wine) (distributor|wholesaler|distributing|distribution company)\b", re.I)
 CARRIER_LANG = re.compile(
     r"\bLTL\b|\bless[- ]than[- ]truckload\b|\btruckloads?\b|\bfreight (carrier|terms|charges?|quote|policy|class|"
     r"prepaid|collect|allowed)\b|\bcommon carrier\b|\bcarrier of (your|the customer's) choice\b|\bf\.?o\.?b\.?\b|"

@@ -51,6 +51,18 @@ No list can make a shipper say yes. What the pipeline *can* do is make the odds 
 - It spreads that number over 20 working days. `today` sizes your list to that daily quota and shows how you're tracking.
 - If the queue is too short to hit the plan, it tells you to run `discover`.
 
+## Hard requirements: no own fleet, ships interstate, uses outside carriers
+
+Every lead the pipeline acquires must pass all three, as far as public evidence can tell. Anything that fails, or can't be confirmed, is **held**: never queued, never exported to the Desk. `python prospect.py held` lists each one with the reason (`outputs/held.csv`).
+
+| Requirement | Passes when | Fails when |
+|---|---|---|
+| **No own fleet** | No active FMCSA fleet registration under the company's name (or a "<name> Trucking/Tran/Transport" subsidiary) in its states, **and** its website doesn't mention its own trucks | It has an FMCSA **private-property** registration with ≥ `fleet_min_power_units` trucks (default 2), **or** its site mentions its own fleet, drivers, CDL hiring, route trucks or direct-store delivery, **or** it's a beer/beverage distributor |
+| **Ships interstate** | Locations in 2+ states, Canada/Mexico locations, or the site says nationwide / across the US / names 3+ states it serves | Its site says "local delivery only" or a delivery radius. Single-state companies with no evidence are held as *unknown* |
+| **Uses outside carriers** | The site mentions LTL, truckload, freight terms, FOB or carriers, **or** it can be inferred: ships interstate with no trucks of its own | Customers pick up (customer-routed freight), or it runs its own trucks |
+
+FMCSA data comes from the public **FMCSA Company Census** (data.transportation.gov): active private fleets in every state where a lead has a location, refreshed monthly. Discovery also drops fleet owners *before* looking up their websites. Matching is by normalized company name plus state or city. It is deliberately conservative to avoid false matches, so a fleet registered under a very different legal name can still slip through. The Desk's call-prep checklist and your first question ("who books the trucks?") are the final check.
+
 ## Prospecting Desk bridge
 
 The pipeline finds and researches leads, and Prospecting Desk is where you work them.

@@ -21,7 +21,8 @@ LEGAL = {"inc", "llc", "co", "corp", "corporation", "company", "ltd", "the", "gr
 
 
 def key(name):
-    words = [w for w in re.findall(r"[a-z0-9]+", str(name or "").lower().replace("&", " and ")) if w not in LEGAL]
+    name = re.sub(r"['’]s\b", "", str(name or "").lower())  # Herr's -> herr
+    words = [w for w in re.findall(r"[a-z0-9]+", name.replace("&", " and ")) if w not in LEGAL]
     return " ".join(words)
 
 
@@ -87,6 +88,31 @@ def match(conn, name, states, cities=()):
     rows = conn.execute(f"SELECT * FROM fmcsa WHERE state IN ({marks}) AND (name_key=? OR dba_key=?)",
                         (*states, k, k)).fetchall()
     two = " ".join(k.split()[:2])
+    from .discover import GENERIC, STATE_FULL
+    weak = GENERIC | {w for s in STATE_FULL.values() for w in s.lower().split()} | {
+        "great", "lakes", "valley", "river", "mountain", "coastal", "central", "eastern", "western", "north", "south",
+        "east", "west", "first", "new", "standard", "quality", "premier", "superior", "best", "general", "global",
+        "allied", "advanced", "precision", "custom", "royal", "golden", "star", "eagle", "liberty", "patriot"}
+    first = k.split()[0]
+    if not rows and cities and first not in weak and len(first) >= 4:
+        # "Herr" + same city as one of their plants -> "HERR FOODS INC" in Nottingham
+        cm = ",".join("?" * len(cities))
+        rows = conn.execute(f"SELECT * FROM fmcsa WHERE state IN ({marks}) AND city IN ({cm}) AND "
+                            "(name_key = ? OR name_key LIKE ? OR dba_key = ? OR dba_key LIKE ?)",
+                            (*states, *[c.upper() for c in cities], first, first + " %", first, first + " %")).fetchall()
+    if not rows and first not in weak and len(first) >= 3:
+        # Trucking subsidiary in the same state: "UTZTRAN", "Smith Trucking", "Acme Transport LLC"
+        rows = [r for r in conn.execute(f"SELECT * FROM fmcsa WHERE state IN ({marks}) AND (name_key LIKE ? OR dba_key LIKE ?)",
+                                        (*states, first + "%", first + "%")).fetchall()
+                if re.match(re.escape(first) + r" ?(tran|truck|transport|logistic|fleet|deliver|freight|express|carrier|distribut)",
+                            r["name_key"] or "") or re.match(re.escape(first) + r" ?(tran|truck|transport|logistic|fleet|deliver)",
+                                                             r["dba_key"] or "")]
+    if not rows and first not in weak and len(first) >= 6:
+        # Distinctive name anywhere in the US (head office state may not be on their website): "UNVERFERTH MFG".
+        # Only the exact name, or the name + a corporate word; "Mikesell Sales Service" is not "Mikesell's".
+        suffixes = ("mfg", "manufacturing", "industries", "products", "foods", "brands", "enterprises", "holdings")
+        rows = conn.execute("SELECT * FROM fmcsa WHERE name_key = ? OR dba_key = ? OR name_key IN (%s)"
+                            % ",".join("?" * len(suffixes)), (k, k, *[f"{k} {s}" for s in suffixes])).fetchall()
     if not rows and len(k.split()) >= 2 and cities:
         cm = ",".join("?" * len(cities))
         rows = conn.execute(f"SELECT * FROM fmcsa WHERE state IN ({marks}) AND city IN ({cm}) AND "
