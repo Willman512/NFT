@@ -63,6 +63,23 @@ Every lead the pipeline acquires must pass all three, as far as public evidence 
 
 FMCSA data comes from the public **FMCSA Company Census** (data.transportation.gov): active private fleets in every state where a lead has a location, refreshed monthly. Discovery also drops fleet owners *before* looking up their websites. Matching is by normalized company name plus state or city. It is deliberately conservative to avoid false matches, so a fleet registered under a very different legal name can still slip through. The Desk's call-prep checklist and your first question ("who books the trucks?") are the final check.
 
+## Learning from other reps' customers (customer profile)
+
+In Prospecting Desk, when a CRM check shows that a company is **another TQL rep's active customer**, set its CRM tag status to **"Active customer (other rep)"**. You'll find it on the Profile tab, or in the bulk "Record CRM tag" action on the Companies page. The company then drops off your call lists and the Dashboard counts it. Next, back up the Desk and run:
+
+```bash
+python prospect.py desk-import my-desk-backup.json   # turns them into model customers
+python prospect.py profile                           # what they have in common
+python prospect.py discover --like-customers         # search where they cluster
+```
+
+- **Model customers are never contacted.** They're kept only to learn from.
+- **Research:** each model customer's website is found and researched. If no site can be found or read, your Desk research on it (industry, description, commodities, modes, location) is used instead.
+- **The profile:** compares the model customers with every other lead. It looks at website signals, EPA industry codes, freight profile, number of locations, and whether the company is a forwarder. It keeps the traits that are much more common among customers. It needs 3+ model customers, and no lost deals are required, because the comparison is the general lead pool.
+- **The lookalike score:** every lead gets one. Leads that score like real customers get the `lookalike` signal, which raises their rank, and their cards say "Looks like other reps' active customers: shares …".
+- **Training:** model customers also count as full wins when `learn` retrains the weights.
+- **Discovery:** `discover --like-customers` points discovery at the states and industries where the customers cluster.
+
 ## Prospecting Desk bridge
 
 The pipeline finds and researches leads, and Prospecting Desk is where you work them.

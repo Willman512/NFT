@@ -16,7 +16,7 @@ from .util import now_iso
 
 LABELS = {
     "load_booked": (1, 3.0), "meeting": (1, 1.5), "quote_requested": (1, 1.5), "replied": (1, 1.0),
-    "existing_customer": (1, 0.5), "owned_by_other_rep": (1, 0.5),
+    "existing_customer": (1, 0.5), "owned_by_other_rep": (1, 0.5), "other_rep_customer": (1, 1.0),
     "bad_fit": (0, 1.5), "not_interested": (0, 1.0), "no_response": (0, 0.5),
 }
 MIN_LABELS = 6          # below this, keep the starting weights

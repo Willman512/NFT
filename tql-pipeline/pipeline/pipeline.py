@@ -45,6 +45,23 @@ def add_from_csv(conn, path, source=None):
     return added, dupes
 
 
+def lookalike(conn, prof, features, research, meta):
+    """Set the `lookalike` feature from the customer profile; return a reason line (or None)."""
+    from . import profile
+    if not prof or not prof.get("active"):
+        features.pop("lookalike", None)
+        return None
+    row = {"features": json.dumps(features), "meta": json.dumps(meta), "research": json.dumps(research)}
+    s, top = profile.score(prof, profile.traits(row))
+    features["lookalike"] = 1 if s >= prof["threshold"] else 0
+    if features["lookalike"]:
+        from .config import load_icp
+        icp = load_icp()
+        return (f"+ Looks like other reps' active customers ({prof['n_models']} models): "
+                + ", ".join(profile.label(t, icp) for t in top))
+    return None
+
+
 def _save_scored(conn, dom, verdict, p, reasons, features, model_version):
     conn.execute("UPDATE prospects SET verdict=?, score=?, reasons=?, features=?, model_version=? WHERE domain=?",
                  (verdict, p, json.dumps(reasons), json.dumps(features), model_version, dom))
@@ -81,9 +98,14 @@ def _store_research(conn, dom, pages, error, icp, policy):
         conn.commit()
         return "error"
     research, features, text = extract(pages, icp["signals"], active_terms(conn))
-    merge_meta(research, features, jload(get_prospect(conn, dom)["meta"], {}))
+    meta = jload(get_prospect(conn, dom)["meta"], {})
+    merge_meta(research, features, meta)
+    from . import profile
+    why = lookalike(conn, profile.load(conn), features, research, meta)
     model = current_model(conn, icp)
     verdict, p, reasons = score(features, research, model, icp, policy)
+    if why:
+        reasons.insert(0, why)
     conn.execute("UPDATE prospects SET research=?, page_text=?, researched_at=?, status='researched', filter_reason=NULL,"
                  " name=COALESCE(name, ?) WHERE domain=?",
                  (json.dumps(research), text[:60000], now_iso(), research.get("name") or None, dom))
@@ -151,12 +173,17 @@ def rescore_all(conn, icp, policy=None, quiet=False):
     policy = policy or load_policy()
     model = current_model(conn, icp)
     terms = active_terms(conn)
+    from . import profile
+    prof = profile.load(conn)
     n = 0
     for r in conn.execute("SELECT * FROM prospects WHERE page_text IS NOT NULL").fetchall():
         features = {k: v for k, v in jload(r["features"], {}).items() if not k.startswith("term:")}
         fresh, _ = pattern_features(r["page_text"], icp["signals"], terms)
         features.update(fresh)
+        why = lookalike(conn, prof, features, jload(r["research"], {}), jload(r["meta"], {}))
         verdict, p, reasons = score(features, jload(r["research"], {}), model, icp, policy)
+        if why:
+            reasons.insert(0, why)
         _save_scored(conn, r["domain"], verdict, p, reasons, features, model["version"])
         n += 1
     conn.commit()
@@ -249,6 +276,7 @@ def record_outcome(conn, dom, outcome, note=""):
     if outcome == "do_not_contact":
         _append_suppression(dom, note or "asked not to be contacted")
     conn.commit()
+    apply_filters(conn, None, dom)  # off the call list immediately, whichever path logged it
 
 
 def _append_suppression(dom, reason):

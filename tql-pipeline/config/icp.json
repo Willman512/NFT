@@ -365,6 +365,12 @@
       "weight": 0.7,
       "label": "Active FMCSA freight-forwarder authority (FF docket)",
       "computed": true
+    },
+    "lookalike": {
+      "kind": "fit",
+      "weight": 1.0,
+      "label": "Looks like other reps' active customers (customer profile)",
+      "computed": true
     }
   }
 }

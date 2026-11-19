@@ -138,7 +138,9 @@ def site_matches(html, name, state, cities=()):
     """Is this homepage really this company? Needs the company's name phrase AND one of its plant cities
     (or its state spelled out / 'ST 12345'). Rejects parked domains."""
     raw = html or ""
-    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).lower().replace("-", " ")
+    from .extract import parse_page
+    pg = parse_page(raw)  # visible text only: words inside scripts/styles/JSON don't count
+    text = re.sub(r"\s+", " ", " ".join([pg["title"], pg["meta_desc"], pg["text"]])).lower().replace("-", " ")
     if re.search(r"domain (is )?for sale|buy this domain|parked free|hugedomains|this domain may be for sale", text):
         return False
     words = [w for w in re.findall(r"[a-z0-9]+", name.lower()) if w not in LEGAL]

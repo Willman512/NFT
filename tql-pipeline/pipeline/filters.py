@@ -7,6 +7,7 @@ from .util import domain_matches
 PERMANENT = {
     "do_not_contact": "asked not to be contacted",
     "existing_customer": "already a TQL customer",
+    "other_rep_customer": "another rep's active customer (kept as a model customer)",
     "owned_by_other_rep": "owned/worked by another TQL rep",
     "manager_declined": "manager said no",
     "out_of_business": "out of business",

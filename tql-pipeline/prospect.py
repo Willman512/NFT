@@ -49,6 +49,8 @@ def cmd_cycle(conn, a):
         _print_learn(learn(conn, icp, note="auto (cycle)"))
     else:
         print("2/4 Learning skipped (pass --learn to retrain each cycle)")
+    from pipeline import profile
+    profile.build(conn)  # customer profile from model customers -> lookalike score
     print("3/4 Rescoring everything with the latest model…")
     rescore_all(conn, icp, policy)
     print("    Checking requirements: no own fleet (FMCSA), ships interstate, uses outside carriers…")
@@ -135,6 +137,16 @@ def cmd_discover(conn, a):
         print("Google each one; if it's a fit, `python prospect.py add <their site>`.")
         return
     states = [s.strip().upper() for s in a.states.split(",") if s.strip()]
+    if a.like_customers:
+        from pipeline import profile
+        sts, codes = profile.discovery_targets(profile.load(conn))
+        if not sts:
+            sys.exit("No customer profile yet. Mark 3+ 'Active customer (other rep)' in the Desk, back up, run desk-import.")
+        states = sts
+        if codes:
+            a.naics = ",".join(codes)
+        print(f"Targeting where your model customers cluster: {', '.join(states)}"
+              + (f"; industries {a.naics}" if codes else ""))
     if a.from_csv:
         cos = disc.companies_from_csv(a.from_csv)
         sts = sorted({p.split(", ")[1][:2] for c in cos for p in c["plants"] if ", " in p}) or states
@@ -179,7 +191,15 @@ def cmd_desk_export(conn, a):
 def cmd_desk_import(conn, a):
     from pipeline import desk
     res = desk.import_desk(conn, desk.load_desk(a.backup))
+    from pipeline import profile
+    n = desk.research_models(conn, load_icp(), load_policy())
+    n_desk = desk.profile_from_desk(conn, load_icp())
+    prof = profile.build(conn)
+    rescore_all(conn, load_icp(), quiet=True)
+    gate_all(conn, log=lambda *_: None)
     apply_filters(conn)
+    print(f"Model customers researched this run: {n} from their websites, {n_desk} from your Desk research")
+    print(profile.render(prof, load_icp()))
     print(f"{res['companies']} Desk companies: {res['matched']} matched pipeline leads, {res['added']} added as Desk-only.")
     print(f"New touches: {res['touches']} · new outcomes: {res['outcomes'] or 'none'}")
     print(forecast.render(forecast.plan(conn, load_policy())))
@@ -210,6 +230,18 @@ def cmd_held(conn, a):
     for r in rows[:a.top]:
         print(f"  {r['domain']:32} {r['filter_reason'][:110]}")
     print(f"Full list: {path}")
+
+
+def cmd_profile(conn, a):
+    from pipeline import profile
+    prof = profile.build(conn)
+    print(profile.render(prof, load_icp()))
+    sts, codes = profile.discovery_targets(prof)
+    if sts:
+        print(f"\nFind more like them: python prospect.py discover --like-customers   (states {','.join(sts)}"
+              + (f"; industry codes {','.join(codes)}" if codes else "") + ")")
+    rescore_all(conn, load_icp(), quiet=True)
+    apply_filters(conn)
 
 
 def cmd_plan(conn, a):
@@ -343,6 +375,7 @@ def main(argv=None):
     s.add_argument("--no-research", action="store_true")
     s.add_argument("--unmatched", action="store_true", help="export companies with no website found (call list)")
     s.add_argument("--forwarders", action="store_true", help="find freight forwarders (active FMCSA FF authority)")
+    s.add_argument("--like-customers", action="store_true", help="search the states/industries your model customers cluster in")
     s.add_argument("--from-csv", help="find websites for any list: columns name, city, state (phone, website optional)")
     s.set_defaults(fn=cmd_discover)
 
@@ -355,6 +388,9 @@ def main(argv=None):
     s = sub.add_parser("desk-import", help="read a Prospecting Desk backup: your calls and stages become outcomes")
     s.add_argument("backup")
     s.set_defaults(fn=cmd_desk_import)
+
+    sub.add_parser("profile", help="what other reps' active customers have in common (drives the lookalike score)"
+                   ).set_defaults(fn=cmd_profile)
 
     s = sub.add_parser("held", help="leads held back by the fleet / interstate / outside-carrier requirements")
     s.add_argument("--top", type=int, default=25)

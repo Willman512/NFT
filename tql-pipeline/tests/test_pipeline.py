@@ -244,6 +244,8 @@ class DiscoverTest(unittest.TestCase):
         self.assertTrue(site_matches(good, "Cooper Steel Fabricators Inc", "TN", ["Shelbyville"]))
         self.assertFalse(site_matches("<p>Mack trucks. oh yes.</p>", "Mack Industries Inc", "OH", ["Valley City"]))
         self.assertFalse(site_matches("<p>Cooper Steel domain is for sale Tennessee</p>", "Cooper Steel", "TN"))
+        hidden = '<p>National Products, Elkhart IN</p><script>var x="Omega Industries Vancouver Washington";</script>'
+        self.assertFalse(site_matches(hidden, "Omega Industries", "WA", ["Vancouver"]))   # script text doesn't count
 
     def test_forecast_math(self):
         from pipeline.forecast import beta_rate, prob_at_least_one, prospects_needed
@@ -459,3 +461,52 @@ class ForwarderTest(unittest.TestCase):
         self.assertEqual(cos[0]["name"], "Blue Wave Logistics Llc")
         self.assertEqual(cos[0]["plants"], ["Savannah, GA"])
         os.unlink(tmp.name)
+
+
+class CustomerProfileTest(PipelineTest):
+    def test_desk_status_maps_to_model_customer(self):
+        from pipeline.desk import desk_outcome
+        self.assertEqual(desk_outcome({"tag": {"status": "Active customer (other rep)"}, "interactions": []})[0],
+                         "other_rep_customer")
+
+    def test_profile_and_lookalike(self):
+        from pipeline import profile
+        from pipeline.pipeline import rescore_all
+        for d in ("steelco.test", "oldmill.test", "overseas.test"):   # three manufacturers as model customers
+            record_outcome(self.conn, d, "other_rep_customer")
+        self.assertEqual(self.v("steelco.test")["status"], "suppressed")   # never on a call list
+        prof = profile.build(self.conn)
+        self.assertTrue(prof["active"])
+        self.assertEqual(prof["n_models"], 3)
+        distinctive = [t for _, t, _, _ in prof["distinctive"]]
+        self.assertIn("manufacturer", distinctive)
+        text = profile.render(prof, self.icp)
+        self.assertIn("3 active customers", text)
+        rescore_all(self.conn, self.icp, self.policy, quiet=True)
+        saas = json.loads(self.v("saasy.test")["features"])
+        self.assertEqual(saas.get("lookalike"), 0)                    # a software firm doesn't look like them
+
+    def test_profile_needs_three(self):
+        from pipeline import profile
+        record_outcome(self.conn, "steelco.test", "other_rep_customer")
+        self.assertFalse(profile.build(self.conn)["active"])
+
+
+class DeskModelTest(PipelineTest):
+    def test_model_without_website_uses_desk_research(self):
+        from pipeline import desk
+        c = {"type": "company", "id": "m1", "name": "Sunny Citrus Packers", "website": "", "city": "Orange Cove",
+             "state": "CA", "industry": "Produce: citrus", "description": "Grower and packer of fresh citrus.",
+             "freight": {"modes": ["Reefer", "Van"], "commodities": {"v": "Oranges"}},
+             "tag": {"status": "Active customer (other rep)"}, "interactions": []}
+        orig = desk._find_site
+        desk._find_site = lambda c: None
+        try:
+            desk.import_desk(self.conn, [c])
+        finally:
+            desk._find_site = orig
+        self.assertEqual(desk.profile_from_desk(self.conn, self.icp), 1)
+        row = self.conn.execute("SELECT * FROM prospects WHERE name='Sunny Citrus Packers'").fetchone()
+        f = json.loads(row["features"])
+        self.assertEqual((f["reefer"], f["food_producer"]), (1, 1))
+        self.assertEqual(row["status"], "suppressed")

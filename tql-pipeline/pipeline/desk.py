@@ -231,6 +231,7 @@ def mark_exported(conn, backup):
 
 
 # ---- Desk -> pipeline
+OTHER_CUST = "Active customer (other rep)"   # PC.OTHER_CUST in the Desk
 POSITIVE = {"Load booked": "load_booked", "Quote sent": "quote_requested", "Meeting scheduled": "meeting",
             "Interested": "replied", "Decision-maker conversation": "replied", "Reply received": "replied",
             "Requested information": "replied", "Follow-up requested": "replied"}
@@ -246,6 +247,8 @@ def desk_outcome(c, today_=None):
     touches = sum(1 for i in its if i.get("kind") in ("Call", "Email", "LinkedIn", "Meeting"))
     if c.get("dnc"):
         return "do_not_contact", touches
+    if (c.get("tag") or {}).get("status") == OTHER_CUST:
+        return "other_rep_customer", touches
     if (c.get("tag") or {}).get("status") == "Tagged":
         return "owned_by_other_rep", touches
     if c.get("stage") == "customer":
@@ -281,6 +284,12 @@ def import_desk(conn, desk_companies):
     for c in desk_companies:
         site = n_domain(c.get("website"))
         dom = (by_url.get(site) if site else None) or by_name.get(n_name(c.get("name")))
+        if not dom and not site and desk_outcome(c)[0] == "other_rep_customer":
+            found = _find_site(c)  # a model customer is only useful to learn from with a website to research
+            if found:
+                c = dict(c, website=found)
+                site = n_domain(found)
+                dom = by_url.get(site)
         if dom:
             summary["matched"] += 1
         else:
@@ -294,6 +303,9 @@ def import_desk(conn, desk_companies):
             summary["added"] += 1
             by_name[n_name(c.get("name"))] = dom
         outcome, touches = desk_outcome(c)
+        if outcome == "other_rep_customer":
+            dom = _upgrade_model(conn, dom, c) or dom
+            _keep_desk_research(conn, dom, c)
         row = conn.execute("SELECT touches, last_outcome FROM prospects WHERE domain=?", (dom,)).fetchone()
         if touches > (row["touches"] or 0):
             conn.execute("UPDATE prospects SET touches=?, contacted_at=COALESCE(contacted_at, ?), desk_exported_at="
@@ -305,3 +317,94 @@ def import_desk(conn, desk_companies):
             summary["outcomes"][outcome] = summary["outcomes"].get(outcome, 0) + 1
     conn.commit()
     return summary
+
+
+def _find_site(c):
+    from .discover import find_website
+    from .fetch import Fetcher
+    from .config import load_policy
+    get = Fetcher(dict(load_policy(), min_seconds_between_requests=0, request_timeout_seconds=6), retries=0).get
+    try:
+        return find_website(c.get("name", ""), (c.get("state") or "").upper(), get, [c.get("city")] if c.get("city") else [])
+    except Exception:
+        return None
+
+
+def research_models(conn, icp, policy, log=print):
+    """Crawl model customers that have a website but no research yet (they stay off every call list)."""
+    from .fetch import Fetcher
+    from .pipeline import research_one
+    rows = conn.execute("SELECT domain FROM prospects WHERE last_outcome IN ('other_rep_customer','existing_customer',"
+                        "'load_booked') AND page_text IS NULL AND url != ''").fetchall()
+    f = Fetcher(policy)
+    for r in rows:
+        log(f"  researching model customer {r['domain']}: {research_one(conn, r['domain'], icp, policy, f)}")
+    return len(rows)
+
+
+def _upgrade_model(conn, dom, c):
+    """A Desk-only record (no website) that's now a model customer: find its site and switch the record to it."""
+    row = conn.execute("SELECT url, meta FROM prospects WHERE domain=?", (dom,)).fetchone()
+    if not row or row["url"]:
+        return None
+    found = c.get("website") or _find_site(c)
+    if not found:
+        return None
+    new = normalize_domain(found)
+    if conn.execute("SELECT 1 FROM prospects WHERE domain=?", (new,)).fetchone():
+        return new  # already researched under its real domain
+    meta = jload(row["meta"], {})
+    if c.get("city") and c.get("state"):
+        meta.setdefault("plants", [f"{c['city']}, {c['state'].upper()}"])
+    conn.execute("UPDATE prospects SET domain=?, url=?, meta=? WHERE domain=?", (new, found, json.dumps(meta), dom))
+    conn.execute("UPDATE outcomes SET domain=? WHERE domain=?", (new, dom))
+    conn.commit()
+    return new
+
+
+def _desk_text(c):
+    fr = c.get("freight") or {}
+    parts = [c.get("name"), c.get("industry"), c.get("description"), (fr.get("commodities") or {}).get("v"),
+             (fr.get("seasonality") or {}).get("v"), (fr.get("frequency") or {}).get("v"), (c.get("research") or {}).get("why"),
+             (c.get("trigger") or {}).get("text"), " ".join(f.get("text", "") for f in (c.get("research") or {}).get("findings", []))]
+    return "\n".join(p for p in parts if p)
+
+
+def _keep_desk_research(conn, dom, c):
+    """Save the Desk's own research on a model customer, used when its website can't be found or read."""
+    row = conn.execute("SELECT meta FROM prospects WHERE domain=?", (dom,)).fetchone()
+    if not row:
+        return
+    meta = jload(row["meta"], {})
+    meta["desk"] = {"text": _desk_text(c), "modes": (c.get("freight") or {}).get("modes", []),
+                    "city": c.get("city", ""), "state": (c.get("state") or "").upper()}
+    conn.execute("UPDATE prospects SET meta=? WHERE domain=?", (json.dumps(meta), dom))
+    conn.commit()
+
+
+MODE_FEATURES = {"Flatbed": "flatbed_oversize", "Heavy haul and specialized": "flatbed_oversize", "Reefer": "reefer",
+                 "Van": "palletized", "LTL and partials": "palletized", "Cross-border": "cross_border",
+                 "Drayage and ocean": "forwarder"}
+
+
+def profile_from_desk(conn, icp):
+    """Model customers with no readable website: build their traits from the Desk's research."""
+    from .extract import pattern_features
+    n = 0
+    for r in conn.execute("SELECT * FROM prospects WHERE last_outcome IN ('other_rep_customer','existing_customer',"
+                          "'load_booked') AND page_text IS NULL").fetchall():
+        d = jload(r["meta"], {}).get("desk")
+        if not d or not d.get("text"):
+            continue
+        features, hits = pattern_features(d["text"], icp["signals"])
+        for m in d.get("modes", []):
+            if m in MODE_FEATURES:
+                features[MODE_FEATURES[m]] = 1
+        loc = f"{d['city']}, {d['state']}" if d.get("city") and d.get("state") else ""
+        research = {"name": r["name"], "pages": [], "us_locations": [loc] if loc else [], "signal_hits": hits,
+                    "source": "Prospecting Desk research"}
+        conn.execute("UPDATE prospects SET page_text=?, features=?, research=?, researched_at=? WHERE domain=?",
+                     (d["text"], json.dumps(features), json.dumps(research), now_iso(), r["domain"]))
+        n += 1
+    conn.commit()
+    return n
