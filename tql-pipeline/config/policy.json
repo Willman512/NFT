@@ -30,6 +30,11 @@
   "not_interested_cooldown_days": 180,
   "_not_interested_cooldown_days": "CONFIRM: when a 'not right now' can be re-approached.",
 
+  "require_gates": true,
+  "_require_gates": "Every pipeline lead must pass all three: no own fleet (FMCSA + website), ships interstate, uses outside carriers. Anything failing or unconfirmed is held, never queued or exported.",
+  "fleet_min_power_units": 2,
+  "_fleet_min_power_units": "A registered FMCSA fleet of this many trucks or more counts as 'has its own fleet'.",
+
   "customer_plan": {
     "target_probability": 0.95,
     "benchmark_customer_rate": 0.02,

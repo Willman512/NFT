@@ -152,6 +152,11 @@ def to_desk(row, stamp=None):
         findings.append({"id": f"f{len(findings)}", "url": "https://echo.epa.gov/",
                          "text": f"EPA ECHO: {len(meta['plants'])} active plant(s) ({'; '.join(meta['plants'][:5])}), "
                                  f"NAICS {' '.join(meta.get('naics', []))}", "pub": researched, "basis": "Public research"})
+    gates = jload(row["gates"], {})
+    if gates.get("qualified"):
+        findings.append({"id": f"f{len(findings)}", "url": "https://data.transportation.gov/d/az4n-8mr2",
+                         "text": "Requirements check: " + " | ".join(gates.get("reasons", [])),
+                         "pub": researched, "basis": "Public research"})
     growth = r.get("signal_hits", {}).get("growth", [])
     why = "; ".join(x[2:] for x in reasons if x.startswith("+"))
     flags = [x for x in reasons if not x.startswith(("+", "-")) and "CRM" not in x]
@@ -169,7 +174,7 @@ def to_desk(row, stamp=None):
         "priority": "A" if row["verdict"] == "GO" and (row["score"] or 0) >= 0.9 else "B" if row["verdict"] == "GO" else "C",
         "tags": [f"Pipeline {stamp}", row["verdict"]] + [p.title() for p in meta.get("profile", [])],
         "tag": {"status": "Unchecked", "checkedAt": "", "crmNames": row["name"] or row["domain"]},
-        "tenders": "Unknown", "fleet": "Private fleet" if f.get("own_fleet") else "Unknown",
+        "tenders": "Unknown", "fleet": "None" if gates.get("qualified") else "Unknown",
         "trigger": {"text": f"Site mentions: \"{growth[0]}\"" if growth else "", "date": researched if growth else "",
                     "url": row["url"] if growth else ""},
         "freight": {"modes": modes,
@@ -197,6 +202,7 @@ def to_desk(row, stamp=None):
 
 def export(conn, desk_companies, verdicts=("GO", "MAYBE"), limit=None):
     idx = DeskIndex(desk_companies)
+    # status='queued' already means all three requirements passed (held leads never reach here)
     q = ("SELECT * FROM prospects WHERE status='queued' AND touches=0 AND desk_exported_at IS NULL AND verdict IN (%s) "
          "ORDER BY CASE verdict WHEN 'GO' THEN 0 ELSE 1 END, score DESC" % ",".join("?" * len(verdicts)))
     out, skipped = [], 0

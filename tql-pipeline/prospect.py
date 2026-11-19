@@ -20,7 +20,7 @@ from pipeline import db
 from pipeline.config import load_icp, load_policy
 from pipeline.email import draft
 from pipeline.learn import learn
-from pipeline.pipeline import (OUTCOMES, add_from_csv, add_lead, apply_filters, queue, record_outcome,
+from pipeline.pipeline import (OUTCOMES, add_from_csv, add_lead, apply_filters, gate_all, queue, record_outcome,
                                rescore_all, research_pending)
 from pipeline.report import card, export, queue_table, stats, suggest_searches
 from pipeline.today import next_touch, plan, write_plan
@@ -51,6 +51,8 @@ def cmd_cycle(conn, a):
         print("2/4 Learning skipped (pass --learn to retrain each cycle)")
     print("3/4 Rescoring everything with the latest model…")
     rescore_all(conn, icp, policy)
+    print("    Checking requirements: no own fleet (FMCSA), ships interstate, uses outside carriers…")
+    print(f"    {gate_all(conn, policy)}")
     print("4/4 Filtering…")
     print(f"    {apply_filters(conn, policy)}")
     print()
@@ -168,6 +170,33 @@ def cmd_desk_import(conn, a):
     print(f"{res['companies']} Desk companies: {res['matched']} matched pipeline leads, {res['added']} added as Desk-only.")
     print(f"New touches: {res['touches']} · new outcomes: {res['outcomes'] or 'none'}")
     print(forecast.render(forecast.plan(conn, load_policy())))
+
+
+def cmd_held(conn, a):
+    """Leads held back by the requirements, with the reason. Export: outputs/held.csv."""
+    import csv
+    from pipeline.config import OUTPUT_DIR
+    rows = conn.execute("SELECT * FROM prospects WHERE status='held' ORDER BY score DESC").fetchall()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUTPUT_DIR / "held.csv"
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["domain", "name", "verdict", "score", "own fleet", "interstate", "outside carriers"])
+        for r in rows:
+            g = json.loads(r["gates"] or "{}")
+            w.writerow([r["domain"], r["name"], r["verdict"], r["score"]] +
+                       [f"{g.get(k, ['?', ''])[0]}: {g.get(k, ['', ''])[1]}" for k in ("fleet", "interstate", "carriers")])
+    by = {}
+    for r in rows:
+        g = json.loads(r["gates"] or "{}")
+        for k in ("fleet", "interstate", "carriers"):
+            st = g.get(k, ["unknown"])[0]
+            if st != "pass":
+                by[f"{k} {st}"] = by.get(f"{k} {st}", 0) + 1
+    print(f"{len(rows)} leads held back. Why: {by}")
+    for r in rows[:a.top]:
+        print(f"  {r['domain']:32} {r['filter_reason'][:110]}")
+    print(f"Full list: {path}")
 
 
 def cmd_plan(conn, a):
@@ -311,6 +340,10 @@ def main(argv=None):
     s = sub.add_parser("desk-import", help="read a Prospecting Desk backup: your calls and stages become outcomes")
     s.add_argument("backup")
     s.set_defaults(fn=cmd_desk_import)
+
+    s = sub.add_parser("held", help="leads held back by the fleet / interstate / outside-carrier requirements")
+    s.add_argument("--top", type=int, default=25)
+    s.set_defaults(fn=cmd_held)
 
     sub.add_parser("plan", help="customer plan: prospects needed for ~95% odds of a new customer, daily quota"
                    ).set_defaults(fn=cmd_plan)

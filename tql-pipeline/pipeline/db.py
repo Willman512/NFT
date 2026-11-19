@@ -27,8 +27,15 @@ CREATE TABLE IF NOT EXISTS prospects (
     last_outcome_at TEXT,
     model_version INTEGER,
     meta          TEXT,                    -- json from discovery (EPA plants, NAICS, profile)
-    desk_exported_at TEXT                  -- sent to Prospecting Desk (never sent twice)
+    desk_exported_at TEXT,                 -- sent to Prospecting Desk (never sent twice)
+    gates         TEXT                     -- json: fleet / interstate / carriers verdicts with evidence
 );
+CREATE TABLE IF NOT EXISTS fmcsa (          -- FMCSA census: active fleets with trucks, by state
+    state TEXT, name_key TEXT, dba_key TEXT, city TEXT, dot TEXT, classdef TEXT, power_units INTEGER, interstate INTEGER
+);
+CREATE INDEX IF NOT EXISTS fmcsa_name ON fmcsa(name_key);
+CREATE INDEX IF NOT EXISTS fmcsa_dba ON fmcsa(dba_key);
+CREATE TABLE IF NOT EXISTS fmcsa_states (state TEXT PRIMARY KEY, fetched_at TEXT, n INTEGER);
 CREATE TABLE IF NOT EXISTS discovered (
     key      TEXT PRIMARY KEY,             -- normalized company name
     name     TEXT,

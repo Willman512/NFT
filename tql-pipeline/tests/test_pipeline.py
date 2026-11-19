@@ -61,6 +61,9 @@ class PipelineTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.conn = db.connect(os.path.join(self.tmp.name, "t.db"))
         self.icp, self.policy = load_icp(), load_policy()
+        # FMCSA checked for every state, no fleets registered (individual tests add some)
+        self.conn.executemany("INSERT INTO fmcsa_states(state, fetched_at, n) VALUES (?, '2099-01-01T00:00:00', 0)",
+                              [(st,) for st in "AL FL OH TX CA GA PA IN KY TN".split()])
         for url in SITES:
             if url.count("/") == 2:
                 add_lead(self.conn, url)
@@ -338,3 +341,38 @@ class NaicsAngleTest(unittest.TestCase):
         self.assertEqual(c["freight"], "flatbed loads")
         self.assertEqual(c["city"], "Savannah, GA")
         self.assertEqual(_modes({"reefer": 1, "naics_flatbed": 1}, {}), ["Flatbed"])
+
+
+class GateTest(PipelineTest):
+    def test_two_state_flatbed_shipper_qualifies(self):
+        row = self.v("steelco.test")   # plants in FL + AL, "we ship nationwide by flatbed truckload"
+        g = json.loads(row["gates"])
+        self.assertTrue(g["qualified"], g)
+        self.assertEqual(row["status"], "queued")
+
+    def test_fmcsa_fleet_blocks(self):
+        from pipeline.pipeline import gate_all
+        self.conn.execute("INSERT INTO fmcsa VALUES ('FL','steelco fabrication','','PENSACOLA','123','PRIVATE PROPERTY',12,1)")
+        gate_all(self.conn, self.policy, fetch_fmcsa=False, log=lambda *_: None)
+        apply_filters(self.conn, self.policy)
+        row = self.v("steelco.test")
+        self.assertEqual(row["status"], "held")
+        self.assertIn("USDOT 123", row["filter_reason"])
+
+    def test_single_truck_is_not_a_fleet(self):
+        from pipeline.pipeline import gate_all
+        self.conn.execute("INSERT INTO fmcsa VALUES ('FL','steelco fabrication','','PENSACOLA','9','PRIVATE PROPERTY',1,1)")
+        gate_all(self.conn, self.policy, fetch_fmcsa=False, log=lambda *_: None)
+        self.assertTrue(json.loads(self.v("steelco.test")["gates"])["qualified"])
+
+    def test_single_state_unknown_is_held(self):
+        row = self.v("oldmill.test")   # one AL address, no multi-state evidence
+        g = json.loads(row["gates"])
+        self.assertEqual(g["interstate"][0], "unknown")
+        self.assertNotEqual(row["status"], "queued")
+
+    def test_site_fleet_words_block(self):
+        from pipeline.qualify import OWN_FLEET
+        for t in ["Now hiring CDL drivers", "our fleet of 40 trucks", "Our drivers deliver on time", "Class A driver positions"]:
+            self.assertTrue(OWN_FLEET.search(t), t)
+        self.assertFalse(OWN_FLEET.search("We ship by LTL and truckload carriers nationwide"))

@@ -86,6 +86,7 @@ def _store_research(conn, dom, pages, error, icp, policy):
                  " name=COALESCE(name, ?) WHERE domain=?",
                  (json.dumps(research), text[:60000], now_iso(), research.get("name") or None, dom))
     _save_scored(conn, dom, verdict, p, reasons, features, model["version"])
+    gate_one(conn, get_prospect(conn, dom), policy=policy)
     conn.commit()
     apply_filters(conn, policy, dom)
     return verdict
@@ -162,6 +163,39 @@ def rescore_all(conn, icp, policy=None, quiet=False):
     return n
 
 
+def gate_one(conn, row, icp=None, policy=None):
+    """Run the three hard requirements (own fleet / interstate / outside carriers) on one researched lead."""
+    from .qualify import evaluate
+    policy = policy or load_policy()
+    g = evaluate(conn, row, row["page_text"] or "", jload(row["research"], {}), jload(row["features"], {}),
+                 jload(row["meta"], {}), policy)
+    conn.execute("UPDATE prospects SET gates=? WHERE domain=?", (json.dumps(g), row["domain"]))
+    return g
+
+
+def gate_all(conn, policy=None, fetch_fmcsa=True, log=print):
+    """Make sure FMCSA fleet data covers every lead's states, then evaluate every researched lead."""
+    from .qualify import _states
+    policy = policy or load_policy()
+    rows = conn.execute("SELECT * FROM prospects WHERE page_text IS NOT NULL AND source != 'prospecting-desk'").fetchall()
+    if fetch_fmcsa:
+        from . import fmcsa
+        states = set()
+        for r in rows:
+            states |= _states(jload(r["research"], {}))
+            states |= {p.split(", ")[1][:2] for p in jload(r["meta"], {}).get("plants", []) if ", " in p}
+        try:
+            fmcsa.ensure_states(conn, states, log=log)
+        except Exception as e:  # network trouble: gates stay "unknown" and those leads are held, never let through
+            log(f"  FMCSA download failed ({type(e).__name__}: {e}). Unchecked leads stay held.")
+    tally = {"qualified": 0, "held": 0}
+    for r in rows:
+        g = gate_one(conn, r, policy=policy)
+        tally["qualified" if g["qualified"] else "held"] += 1
+    conn.commit()
+    return tally
+
+
 def apply_filters(conn, policy=None, domain=None):
     """Move researched prospects into queued / skipped / suppressed. Runs every cycle, and on each lead
     as soon as its research finishes (so an interrupted run never strands finished work)."""
@@ -177,6 +211,11 @@ def apply_filters(conn, policy=None, domain=None):
                      "contacted" if (r["last_outcome"] in ACTIVE or reason.startswith("cooldown")) else "suppressed"
         elif r["verdict"] == "SKIP":
             status, reason = "skipped", "scored SKIP"
+        elif policy.get("require_gates", True) and r["source"] != "prospecting-desk" \
+                and not jload(r["gates"], {}).get("qualified"):
+            g = jload(r["gates"], {})
+            fails = [x for x in g.get("reasons", []) if ": PASS" not in x]
+            status, reason = "held", ("; ".join(fails) if fails else "requirements not checked yet")
         elif r["verdict"] in ("GO", "MAYBE"):
             status = "queued"
         else:

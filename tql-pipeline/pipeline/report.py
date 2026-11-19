@@ -40,6 +40,10 @@ def card(row):
            f"status: {row['status']}{', ' + row['filter_reason'] if row['filter_reason'] else ''})"]
     out += [f"  {x}" for x in reasons]
 
+    g = jload(row["gates"], {}) if "gates" in row.keys() else {}
+    if g:
+        out.append("\n**Requirements:** " + ("all met" if g.get("qualified") else "NOT met: held"))
+        out += [f"- {x}" for x in g.get("reasons", [])]
     out.append("\n**Company snapshot:**")
     hits = r.get("signal_hits", {})
     profile = [k for k in ("flatbed_oversize", "reefer", "palletized", "hazmat") if feats.get(k)]
