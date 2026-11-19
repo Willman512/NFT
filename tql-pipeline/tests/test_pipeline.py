@@ -136,3 +136,29 @@ class PipelineTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FollowupTest(PipelineTest):
+    def test_sequence(self):
+        import datetime as dt
+        from pipeline.today import followups, plan
+        record_outcome(self.conn, "steelco.test", "contacted")
+        self.conn.execute("UPDATE prospects SET contacted_at='2026-01-01' WHERE domain='steelco.test'")
+        due, _ = followups(self.conn, self.policy, dt.date(2026, 1, 5))
+        self.assertEqual([(r["domain"], t) for r, t, _ in due], [("steelco.test", 2)])
+        text, warns = draft(self.v("steelco.test"), "(513) 555-0000", 2)
+        self.assertIn("re: flatbeds out of pensacola", text)
+        self.assertEqual(text.count("?"), 1)
+        md = plan(self.conn, self.policy, drafts=True, today=dt.date(2026, 1, 5))
+        self.assertIn("frostfarms.test", md)
+        self.assertIn("Opener:", md)
+
+    def test_finished_sequence(self):
+        import datetime as dt
+        from pipeline.today import followups
+        for _ in range(3):
+            record_outcome(self.conn, "steelco.test", "contacted")
+        self.conn.execute("UPDATE prospects SET contacted_at='2026-01-01' WHERE domain='steelco.test'")
+        due, finished = followups(self.conn, self.policy, dt.date(2026, 1, 20))
+        self.assertEqual(due, [])
+        self.assertEqual(finished[0][0]["domain"], "steelco.test")

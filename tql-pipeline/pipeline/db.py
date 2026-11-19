@@ -57,6 +57,21 @@ CREATE TABLE IF NOT EXISTS learned_terms (
 """
 
 
+def _migrate(conn):
+    """Add any columns introduced after a database was created."""
+    for table, ddl in (("prospects", SCHEMA.split("CREATE TABLE IF NOT EXISTS prospects (")[1].split(");")[0]),
+                       ("outcomes", SCHEMA.split("CREATE TABLE IF NOT EXISTS outcomes (")[1].split(");")[0])):
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        for line in ddl.split("\n"):
+            line = line.split("--")[0].strip().rstrip(",")
+            if not line or "PRIMARY KEY" in line:
+                continue
+            col = line.split()[0]
+            if col not in have:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {line.replace('NOT NULL', '')}")
+    conn.commit()
+
+
 def connect(path=None):
     if path is None:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -64,6 +79,7 @@ def connect(path=None):
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
 
 

@@ -50,43 +50,72 @@ def _save_scored(conn, dom, verdict, p, reasons, features, model_version):
                  (verdict, p, json.dumps(reasons), json.dumps(features), model_version, dom))
 
 
-def research_one(conn, dom, icp, policy, fetcher):
-    row = get_prospect(conn, dom)
-    if domain_matches(dom, policy.get("blocked_domains", [])):
-        conn.execute("UPDATE prospects SET status='suppressed', filter_reason=? WHERE domain=?",
-                     ("blocked domain — research by hand", dom))
-        conn.commit()
-        return "blocked"
-    try:
-        pages = fetcher.crawl(row["url"])
-    except Exception as e:  # dead site, DNS, robots — record it and move on
+def _store_research(conn, dom, pages, error, icp, policy):
+    if error is not None:  # dead site, DNS, robots — record it and move on
         conn.execute("UPDATE prospects SET status='error', filter_reason=?, researched_at=? WHERE domain=?",
-                     (f"fetch failed: {type(e).__name__}: {str(e)[:150]}", now_iso(), dom))
+                     (f"fetch failed: {type(error).__name__}: {str(error)[:150]}", now_iso(), dom))
         conn.commit()
         return "error"
     research, features, text = extract(pages, icp["signals"], active_terms(conn))
     model = current_model(conn, icp)
     verdict, p, reasons = score(features, research, model, icp, policy)
-    conn.execute("UPDATE prospects SET research=?, page_text=?, researched_at=?, status='researched', name=COALESCE(name, ?)"
-                 " WHERE domain=?", (json.dumps(research), text[:60000], now_iso(), research.get("name") or None, dom))
+    conn.execute("UPDATE prospects SET research=?, page_text=?, researched_at=?, status='researched', filter_reason=NULL,"
+                 " name=COALESCE(name, ?) WHERE domain=?",
+                 (json.dumps(research), text[:60000], now_iso(), research.get("name") or None, dom))
     _save_scored(conn, dom, verdict, p, reasons, features, model["version"])
     conn.commit()
     return verdict
 
 
-def research_pending(conn, icp, policy=None, fetcher=None, limit=None, retry_errors=False, log=print):
+def _crawl(url, fetcher):
+    try:
+        return fetcher.crawl(url), None
+    except Exception as e:
+        return None, e
+
+
+def _blocked(conn, dom, policy):
+    if domain_matches(dom, policy.get("blocked_domains", [])):
+        conn.execute("UPDATE prospects SET status='suppressed', filter_reason=? WHERE domain=?",
+                     ("blocked domain — research by hand", dom))
+        conn.commit()
+        return True
+    return False
+
+
+def research_one(conn, dom, icp, policy, fetcher):
+    if _blocked(conn, dom, policy):
+        return "blocked"
+    pages, err = _crawl(get_prospect(conn, dom)["url"], fetcher)
+    return _store_research(conn, dom, pages, err, icp, policy)
+
+
+def research_pending(conn, icp, policy=None, fetcher=None, limit=None, retry_errors=False, log=print, workers=None):
+    """Crawl many sites in parallel (each site is still crawled politely, one page at a time)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     policy = policy or load_policy()
-    fetcher = fetcher or Fetcher(policy)
+    workers = workers or int(policy.get("parallel_sites", 6))
     statuses = ("new", "error") if retry_errors else ("new",)
-    q = f"SELECT domain FROM prospects WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY added_at"
-    doms = [r["domain"] for r in conn.execute(q, statuses)]
+    q = f"SELECT domain, url FROM prospects WHERE status IN ({','.join('?' * len(statuses))}) ORDER BY added_at"
+    rows = [(r["domain"], r["url"]) for r in conn.execute(q, statuses)]
     if limit:
-        doms = doms[:limit]
+        rows = rows[:limit]
     tally = {}
-    for i, dom in enumerate(doms, 1):
-        result = research_one(conn, dom, icp, policy, fetcher)
-        tally[result] = tally.get(result, 0) + 1
-        log(f"  [{i}/{len(doms)}] {dom}: {result}")
+    todo = []
+    for dom, url in rows:
+        if _blocked(conn, dom, policy):
+            tally["blocked"] = tally.get("blocked", 0) + 1
+        else:
+            todo.append((dom, url))
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        futs = {pool.submit(_crawl, url, fetcher or Fetcher(policy)): dom for dom, url in todo}
+        for i, fut in enumerate(as_completed(futs), 1):
+            dom = futs[fut]
+            pages, err = fut.result()
+            result = _store_research(conn, dom, pages, err, icp, policy)
+            tally[result] = tally.get(result, 0) + 1
+            log(f"  [{i}/{len(todo)}] {dom}: {result}")
     return tally
 
 

@@ -50,6 +50,8 @@ def card(row):
 
     out.append("\n**Sources:**")
     out += [f"- {p['kind']}: {p['url']}" for p in r.get("pages", [])]
+    from .email import call_opener
+    out.append(f"\n**Call opener:** {call_opener(row)}")
     out.append(f"\nWant the intro email? Run: python prospect.py email {row['domain']}")
     return "\n".join(out)
 

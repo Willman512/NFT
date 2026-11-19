@@ -5,12 +5,14 @@
   python prospect.py cycle                                # research new leads, rescore, filter
   python prospect.py queue                                # who to call today
   python prospect.py card acme-steel.com                  # full research card
-  python prospect.py email acme-steel.com                 # intro email draft (you send it)
+  python prospect.py today --drafts                       # the day's call/email plan
+  python prospect.py email acme-steel.com                 # next email in the sequence (you send it)
   python prospect.py outcome acme-steel.com contacted     # log what happened
   python prospect.py learn                                # retrain on outcomes
   python prospect.py stats | suggest | export
 """
 import argparse
+import os
 import sys
 
 from pipeline import db
@@ -20,6 +22,7 @@ from pipeline.learn import learn
 from pipeline.pipeline import (OUTCOMES, add_from_csv, add_lead, apply_filters, queue, record_outcome,
                                rescore_all, research_pending)
 from pipeline.report import card, export, queue_table, stats, suggest_searches
+from pipeline.today import next_touch, plan, write_plan
 from pipeline.util import normalize_domain
 
 
@@ -90,11 +93,18 @@ def cmd_email(conn, a):
         sys.exit("Research it first: python prospect.py research " + a.domain)
     if r["status"] == "suppressed":
         sys.exit(f"Not drafting: {r['domain']} is suppressed ({r['filter_reason']}).")
-    text, warnings = draft(r, a.phone)
+    touch = a.touch or next_touch(r, load_policy())
+    text, warnings = draft(r, a.phone, touch)
     print(text)
     if warnings:
         print("\n# Check before sending:\n" + "\n".join(f"#  - {w}" for w in warnings))
     print("\n# After sending from your TQL email, log it: python prospect.py outcome", r["domain"], "contacted")
+
+
+def cmd_today(conn, a):
+    text = plan(conn, load_policy(), a.top, a.drafts, a.phone)
+    print(text)
+    print(f"\n(saved to {write_plan(text)})")
 
 
 def cmd_outcome(conn, a):
@@ -180,8 +190,14 @@ def main(argv=None):
     s.set_defaults(fn=cmd_card)
 
     s = sub.add_parser("email", help="draft an intro email (never sends)")
-    s.add_argument("domain"), s.add_argument("--phone", default="[Phone]")
+    s.add_argument("domain"), s.add_argument("--phone", default=os.environ.get("TQL_PHONE", "[Phone]"))
+    s.add_argument("--touch", type=int, choices=[1, 2, 3], help="default: next touch in the sequence")
     s.set_defaults(fn=cmd_email)
+
+    s = sub.add_parser("today", help="daily plan: follow-ups due, new GOs with call openers, MAYBEs")
+    s.add_argument("--top", type=int, default=15), s.add_argument("--drafts", action="store_true")
+    s.add_argument("--phone", default=os.environ.get("TQL_PHONE", "[Phone]"))
+    s.set_defaults(fn=cmd_today)
 
     s = sub.add_parser("outcome", help="log what happened: " + ", ".join(OUTCOMES))
     s.add_argument("domain"), s.add_argument("outcome", choices=OUTCOMES), s.add_argument("--note")

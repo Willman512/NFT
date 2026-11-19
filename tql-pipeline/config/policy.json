@@ -16,10 +16,16 @@
   "respect_robots_txt": true,
   "min_seconds_between_requests": 1.5,
   "max_pages_per_site": 6,
+  "parallel_sites": 6,
+  "_parallel_sites": "Different companies crawled at once. Each site still gets one request at a time with the delay above.",
   "request_timeout_seconds": 15,
 
   "recontact_cooldown_days": 21,
   "_recontact_cooldown_days": "CONFIRM: how soon TQL lets you re-touch a prospect who didn't answer.",
+
+  "followup_days": [3, 7],
+  "max_touches": 3,
+  "_followup_days": "Touch 2 goes 3 days after touch 1, touch 3 goes 7 days after touch 2. Then log no_response.",
 
   "not_interested_cooldown_days": 180,
   "_not_interested_cooldown_days": "CONFIRM: when a 'not right now' can be re-approached.",

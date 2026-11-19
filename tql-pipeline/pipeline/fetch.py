@@ -78,6 +78,23 @@ def find_nav_links(html, base_url, limit):
     return chosen[:limit]
 
 
+def links_from_sitemap(xml, base_url, have, limit):
+    """Pick about/products/contact/shipping URLs out of a sitemap.xml."""
+    base_dom = normalize_domain(base_url)
+    locs = [u.strip() for u in re.findall(r"<loc>\s*([^<]+?)\s*</loc>", xml or "", re.I)]
+    have = {k for k, _ in have}
+    chosen = []
+    for kind, pattern in PAGE_TYPES:
+        if kind in have:
+            continue
+        for u in sorted(locs, key=len):  # shortest URL = top-level page, not a blog post
+            if normalize_domain(u) == base_dom and re.search(pattern, urlparse(u).path.lower()) \
+                    and not u.lower().endswith(".xml"):
+                chosen.append((kind, u))
+                break
+    return chosen[:limit]
+
+
 class Fetcher:
     """HTTP fetcher. Swap `get` in tests with a dict-backed function."""
 
@@ -94,7 +111,7 @@ class Fetcher:
         req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.8"})
         with urllib.request.urlopen(req, timeout=self.timeout) as resp:
             ctype = resp.headers.get("Content-Type", "")
-            if "html" not in ctype and "text" not in ctype:
+            if not any(t in ctype for t in ("html", "text", "xml")):
                 return resp.geturl(), ""
             charset = resp.headers.get_content_charset() or "utf-8"
             return resp.geturl(), resp.read(2_000_000).decode(charset, errors="replace")
@@ -132,7 +149,19 @@ class Fetcher:
         final_url, html = self.get(url)
         pages = [{"kind": "home", "url": final_url, "html": html}]
         limit = int(self.policy.get("max_pages_per_site", 6)) - 1
-        for kind, link in find_nav_links(html, final_url, limit):
+        links = find_nav_links(html, final_url, limit)
+        if len(links) < 3:  # menu probably built by JavaScript: fall back to the sitemap
+            try:
+                p = urlparse(final_url)
+                _, xml = self.get(f"{p.scheme}://{p.netloc}/sitemap.xml")
+                if "<sitemapindex" in xml:  # one level down: first page-sitemap
+                    subs = re.findall(r"<loc>\s*([^<]+?)\s*</loc>", xml)
+                    sub = next((u for u in subs if "page" in u.lower()), subs[0] if subs else None)
+                    xml = self.get(sub)[1] if sub else ""
+                links += links_from_sitemap(xml, final_url, links, limit - len(links))
+            except (urllib.error.URLError, PermissionError, TimeoutError, OSError, ValueError):
+                pass
+        for kind, link in links:
             try:
                 u, h = self.get(link)
                 pages.append({"kind": kind, "url": u, "html": h})

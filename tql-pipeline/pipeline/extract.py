@@ -99,7 +99,8 @@ def extract(pages, signals, learned_terms=()):
     raw = "\n".join(p["html"] or "" for p in pages)
 
     # Order of appearance is kept (first address is usually HQ / main plant).
-    phones = _uniq(f"({a}) {b}-{c}" for a, b, c in PHONE_RE.findall(text))
+    phones = _uniq(f"({m.group(1)}) {m.group(2)}-{m.group(3)}" for m in PHONE_RE.finditer(text)
+                   if "fax" not in text[max(0, m.start() - 12):m.start()].lower())
     emails = _uniq(e.lower() for e in EMAIL_RE.findall(raw)
                    if not e.lower().endswith((".png", ".jpg", ".gif", ".webp", ".svg")) and "sentry" not in e.lower())
     us_addr = _uniq(f"{c.strip()}, {s} {z}" for c, s, z in US_ADDR_RE.findall(text))
