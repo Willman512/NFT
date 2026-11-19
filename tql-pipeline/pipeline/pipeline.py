@@ -87,6 +87,7 @@ def _store_research(conn, dom, pages, error, icp, policy):
                  (json.dumps(research), text[:60000], now_iso(), research.get("name") or None, dom))
     _save_scored(conn, dom, verdict, p, reasons, features, model["version"])
     conn.commit()
+    apply_filters(conn, policy, dom)
     return verdict
 
 
@@ -161,12 +162,14 @@ def rescore_all(conn, icp, policy=None, quiet=False):
     return n
 
 
-def apply_filters(conn, policy=None):
-    """Move researched prospects into queued / skipped / suppressed. Runs every cycle."""
+def apply_filters(conn, policy=None, domain=None):
+    """Move researched prospects into queued / skipped / suppressed. Runs every cycle, and on each lead
+    as soon as its research finishes (so an interrupted run never strands finished work)."""
     policy = policy or load_policy()
     suppression = load_suppression()
     counts = {}
-    rows = conn.execute("SELECT * FROM prospects WHERE status NOT IN ('new','error')").fetchall()
+    q = "SELECT * FROM prospects WHERE status NOT IN ('new','error')" + (" AND domain=?" if domain else "")
+    rows = conn.execute(q, (domain,) if domain else ()).fetchall()
     for r in rows:
         reason = filter_reason(r, policy, suppression)
         if reason:
