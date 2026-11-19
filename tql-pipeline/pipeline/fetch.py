@@ -115,7 +115,17 @@ class Fetcher:
             if not any(t in ctype for t in ("html", "text", "xml")):
                 return resp.geturl(), ""
             charset = resp.headers.get_content_charset() or "utf-8"
-            return resp.geturl(), resp.read(2_000_000).decode(charset, errors="replace")
+            # Hard total deadline: a server that trickles bytes can't hold a worker forever.
+            deadline, chunks, size = time.time() + max(15.0, self.timeout), [], 0
+            while size < 2_000_000:
+                if time.time() > deadline:
+                    raise TimeoutError(f"page took too long: {url}")
+                chunk = resp.read(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                size += len(chunk)
+            return resp.geturl(), b"".join(chunks).decode(charset, errors="replace")
 
     def allowed(self, url):
         dom = normalize_domain(url)

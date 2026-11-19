@@ -220,8 +220,14 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
         cities = [p.split(",")[0] for p in c["plants"]]
         return c, (find_website(c["name"], state, get_page, cities) if find_sites else None)
 
+    from concurrent.futures import as_completed
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for c, url in pool.map(work, fresh):
+        futures = [pool.submit(work, c) for c in fresh]
+        for fut in as_completed(futures):  # save each as it finishes; one slow site can't block the rest
+            try:
+                c, url = fut.result()
+            except Exception:
+                continue
             meta = {"plants": c["plants"], "naics": c["naics"], "profile": c["profile"], "source": "epa-echo"}
             conn.execute("INSERT OR REPLACE INTO discovered(key, name, plants, naics, website, found_at) "
                          "VALUES (?,?,?,?,?,?)", (c["key"], c["name"], json.dumps(c["plants"]), json.dumps(c["naics"]),
