@@ -1,0 +1,141 @@
+"""Polite site crawler: home page + the 'about / products / contact / shipping' pages from its nav.
+
+Respects robots.txt and a per-request delay from config/policy.json. Never touches blocked domains.
+"""
+import re
+import time
+import urllib.error
+import urllib.request
+import urllib.robotparser
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
+
+from .util import domain_matches, normalize_domain
+
+USER_AGENT = "Mozilla/5.0 (compatible; ProspectResearch/1.0; manual sales research)"
+
+# Which nav links are worth a visit, in priority order.
+PAGE_TYPES = [
+    ("about", r"about|our-story|story|history|who-we-are|company"),
+    ("products", r"product|services|solutions|capabilit|what-we-do|catalog"),
+    ("contact", r"contact|location|facilit|plants|find-us|directions"),
+    ("shipping", r"shipping|delivery|freight|logistics|distribution|dealer|retailer|where-to-buy|store-locator"),
+    ("careers", r"career|jobs|employment|join"),
+    ("team", r"team|leadership|staff|management|people"),
+]
+
+
+class _LinkParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links = []  # (href, text)
+        self._href = None
+        self._text = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "a":
+            self._href = dict(attrs).get("href")
+            self._text = []
+
+    def handle_data(self, data):
+        if self._href is not None:
+            self._text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "a" and self._href is not None:
+            self.links.append((self._href, " ".join(self._text).strip()))
+            self._href = None
+
+
+def find_nav_links(html, base_url, limit):
+    """Pick same-site links that look like about/products/contact/shipping pages."""
+    parser = _LinkParser()
+    try:
+        parser.feed(html)
+    except Exception:  # malformed HTML: use what we got
+        pass
+    base_dom = normalize_domain(base_url)
+    chosen, seen = [], {base_url.rstrip("/")}
+    english_toggle = None
+    for kind, pattern in PAGE_TYPES:
+        for href, text in parser.links:
+            if not href or href.startswith(("mailto:", "tel:", "javascript:", "#")):
+                continue
+            full = urljoin(base_url, href).split("#")[0]
+            if normalize_domain(full) != base_dom or full.rstrip("/") in seen:
+                continue
+            if re.search(r"\.(pdf|jpg|jpeg|png|gif|zip|docx?)$", full, re.I):
+                continue
+            if english_toggle is None and text.strip().upper() in ("EN", "ENGLISH"):
+                english_toggle = full
+            haystack = (urlparse(full).path + " " + text).lower()
+            if re.search(pattern, haystack):
+                chosen.append((kind, full))
+                seen.add(full.rstrip("/"))
+                break  # one page per type, keeps the crawl small
+    if english_toggle and english_toggle.rstrip("/") not in seen:
+        chosen.insert(0, ("english", english_toggle))
+    return chosen[:limit]
+
+
+class Fetcher:
+    """HTTP fetcher. Swap `get` in tests with a dict-backed function."""
+
+    def __init__(self, policy, get=None):
+        self.policy = policy
+        self.delay = float(policy.get("min_seconds_between_requests", 1.5))
+        self.timeout = float(policy.get("request_timeout_seconds", 15))
+        self._last = 0.0
+        self._robots = {}
+        self._live = get is None
+        self._get = get or self._http_get
+
+    def _http_get(self, url):
+        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Language": "en-US,en;q=0.8"})
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            ctype = resp.headers.get("Content-Type", "")
+            if "html" not in ctype and "text" not in ctype:
+                return resp.geturl(), ""
+            charset = resp.headers.get_content_charset() or "utf-8"
+            return resp.geturl(), resp.read(2_000_000).decode(charset, errors="replace")
+
+    def allowed(self, url):
+        dom = normalize_domain(url)
+        if domain_matches(dom, self.policy.get("blocked_domains", [])):
+            return False
+        if not self.policy.get("respect_robots_txt", True) or not self._live:
+            return True
+        p = urlparse(url)
+        root = f"{p.scheme}://{p.netloc}"
+        if root not in self._robots:
+            rp = urllib.robotparser.RobotFileParser()
+            rp.set_url(root + "/robots.txt")
+            try:
+                rp.read()
+            except Exception:
+                rp = None  # unreachable robots.txt -> treat as allowed
+            self._robots[root] = rp
+        rp = self._robots[root]
+        return rp is None or rp.can_fetch(USER_AGENT, url)
+
+    def get(self, url):
+        if not self.allowed(url):
+            raise PermissionError(f"blocked by policy/robots.txt: {url}")
+        wait = self.delay - (time.time() - self._last)
+        if wait > 0 and self._live:
+            time.sleep(wait)
+        self._last = time.time()
+        return self._get(url)
+
+    def crawl(self, url):
+        """Return list of {kind, url, html}. Home page first."""
+        final_url, html = self.get(url)
+        pages = [{"kind": "home", "url": final_url, "html": html}]
+        limit = int(self.policy.get("max_pages_per_site", 6)) - 1
+        for kind, link in find_nav_links(html, final_url, limit):
+            try:
+                u, h = self.get(link)
+                pages.append({"kind": kind, "url": u, "html": h})
+            except (urllib.error.URLError, PermissionError, TimeoutError, OSError, ValueError):
+                continue
+        return pages

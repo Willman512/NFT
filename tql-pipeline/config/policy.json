@@ -1,0 +1,35 @@
+{
+  "_comment": "Guardrails. The pipeline has no limits of its own beyond these. Every item marked CONFIRM is a placeholder: check it against TQL's actual written policy / your manager and edit. Nothing here is official TQL policy.",
+
+  "auto_send_email": false,
+  "_auto_send_email": "Hard-coded off. The pipeline drafts; you send from your TQL account so it's logged in TQL's systems.",
+
+  "require_crm_ownership_check": true,
+  "_require_crm_ownership_check": "CONFIRM: before first contact, check TQL's CRM that the account isn't already a customer or owned/worked by another rep. Record result with `outcome <domain> owned_by_other_rep` or `existing_customer`.",
+
+  "broker_3pl_requires_manager_ok": true,
+  "_broker_3pl_requires_manager_ok": "Brokers/3PLs/forwarders are capped at MAYBE until you get a manager OK.",
+
+  "blocked_domains": ["linkedin.com", "facebook.com", "instagram.com", "x.com", "twitter.com", "zoominfo.com", "google.com"],
+  "_blocked_domains": "Never crawled (terms of service). Research contacts there by hand.",
+
+  "respect_robots_txt": true,
+  "min_seconds_between_requests": 1.5,
+  "max_pages_per_site": 6,
+  "request_timeout_seconds": 15,
+
+  "recontact_cooldown_days": 21,
+  "_recontact_cooldown_days": "CONFIRM: how soon TQL lets you re-touch a prospect who didn't answer.",
+
+  "not_interested_cooldown_days": 180,
+  "_not_interested_cooldown_days": "CONFIRM: when a 'not right now' can be re-approached.",
+
+  "max_new_contacts_per_day": null,
+  "_max_new_contacts_per_day": "null = no cap. Set a number only if TQL policy has one.",
+
+  "email_rules": {
+    "require_signature": true,
+    "honor_opt_outs": true,
+    "_honor_opt_outs": "Anyone who says stop goes on `outcome <domain> do_not_contact` and is suppressed forever (CAN-SPAM / CASL)."
+  }
+}
