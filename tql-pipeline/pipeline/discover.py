@@ -212,6 +212,29 @@ def discover(conn, states, naics, get_json=_get_json, get_page=None, find_sites=
               or " ".join(c["key"].split()[:2]) in have}
     fresh = [c for c in companies if c["key"] not in known]
     summary["known"] = len(companies) - len(fresh)
+
+    # Requirement: no own fleet. Drop companies with an FMCSA-registered fleet before any website work.
+    from . import fmcsa
+    min_units = int(policy.get("fleet_min_power_units", 2))
+    try:
+        fmcsa.ensure_states(conn, states, log=log)
+    except Exception as e:
+        log(f"  FMCSA download failed ({type(e).__name__}); fleet check will run at research time instead")
+    summary["fleet_dropped"] = 0
+    keep = []
+    for c in fresh:
+        sts = sorted({p.split(", ")[1][:2] for p in c["plants"] if ", " in p})
+        regs = [r for r in fmcsa.match(conn, c["name"], sts, [p.split(",")[0] for p in c["plants"]])
+                if r["power_units"] >= min_units]
+        if regs:
+            conn.execute("INSERT OR REPLACE INTO discovered(key, name, plants, naics, website, found_at) VALUES (?,?,?,?,?,?)",
+                         (c["key"], c["name"], json.dumps(c["plants"]), json.dumps(c["naics"]),
+                          f"fleet:USDOT {regs[0]['dot']} ({regs[0]['power_units']} trucks)", now_iso()))
+            summary["fleet_dropped"] += 1
+        else:
+            keep.append(c)
+    conn.commit()
+    fresh = keep
     if limit:
         fresh = fresh[:limit]
 

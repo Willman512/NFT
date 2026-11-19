@@ -256,6 +256,7 @@ class DiscoverTest(unittest.TestCase):
         from pipeline.discover import discover
         tmp = tempfile.TemporaryDirectory()
         conn = db.connect(os.path.join(tmp.name, "d.db"))
+        conn.execute("INSERT INTO fmcsa_states VALUES ('TN', '2099-01-01T00:00:00', 0)")  # no network in tests
 
         def fake_json(url):
             if "get_facilities" in url:
@@ -376,3 +377,4 @@ class GateTest(PipelineTest):
         for t in ["Now hiring CDL drivers", "our fleet of 40 trucks", "Our drivers deliver on time", "Class A driver positions"]:
             self.assertTrue(OWN_FLEET.search(t), t)
         self.assertFalse(OWN_FLEET.search("We ship by LTL and truckload carriers nationwide"))
+        self.assertFalse(OWN_FLEET.search("Our Trailers are built to last"))   # product, not a fleet

@@ -32,8 +32,13 @@ def _get(url, tries=6):
             with urllib.request.urlopen(req, timeout=180) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
-            if e.code == 429 and i < tries - 1:  # public API throttles anonymous callers: back off
+            if e.code in (429, 500, 502, 503, 504) and i < tries - 1:  # throttled or busy: back off
                 time.sleep(30 * (i + 1))
+                continue
+            raise
+        except (urllib.error.URLError, ConnectionResetError, TimeoutError) as e:
+            if i < tries - 1:  # dropped connection on a big download: retry
+                time.sleep(15 * (i + 1))
                 continue
             raise
 

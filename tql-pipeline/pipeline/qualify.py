@@ -12,10 +12,12 @@ with the reason (call to verify, or drop). Nothing held is exported to Prospecti
 import re
 
 from . import fmcsa
-from .extract import STATE_NAMES
+from .extract import STATE_NAMES, US_STATES
 
 OWN_FLEET = re.compile(
-    r"\bour (own )?(fleet|trucks|tractors|trailers|drivers|delivery trucks|delivery fleet)\b|\bprivate fleet\b|"
+    # "our trailers"/"our trucks" is often the PRODUCT (trailer/truck-body makers), so require delivery context.
+    r"\bour (own )?(fleet|drivers|delivery trucks|delivery fleet|truck fleet)\b|\bour own trucks\b|"
+    r"\bour trucks (deliver|haul|make|run|are on the road)\b|\bprivate fleet\b|"
     r"\bfleet of (over |more than )?\d+\b|\bcompany[- ](owned )?(trucks|drivers|fleet)\b|\bwe deliver (it )?(ourselves|"
     r"with our own)\b|\b(cdl|class a|truck) drivers? (wanted|needed|positions?|jobs?|openings?)\b|"
     r"\b(hiring|now hiring|join our team as an?) (cdl |class a |local |otr |regional )?(truck )?drivers?\b|"
@@ -37,13 +39,14 @@ def _states(research):
         _, _, rest = loc.partition(",")
         if rest.split():
             sts.add(rest.split()[0].upper())
-    return {s for s in sts if len(s) == 2}
+    return {s for s in sts if s in US_STATES}
 
 
 def evaluate(conn, row, text, research, features, meta, policy):
     """-> {"fleet": (status, evidence), "interstate": (...), "carriers": (...), "qualified": bool, "reasons": [...]}"""
     min_units = int(policy.get("fleet_min_power_units", 2))
-    states = _states(research) | {p.split(", ")[1][:2] for p in meta.get("plants", []) if ", " in p}
+    states = _states(research) | {p.split(", ")[1][:2] for p in meta.get("plants", []) if ", " in p
+                                  and p.split(", ")[1][:2] in US_STATES}
     cities = sorted({loc.split(",")[0].strip() for loc in research.get("us_locations", [])} |
                     {p.split(",")[0].strip() for p in meta.get("plants", [])})
 
