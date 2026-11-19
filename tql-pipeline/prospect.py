@@ -143,6 +143,33 @@ def cmd_discover(conn, a):
         cmd_cycle(conn, argparse.Namespace(limit=None, retry_errors=False, learn=False, top=a.top))
 
 
+def cmd_desk_export(conn, a):
+    from pipeline import desk
+    from pipeline.config import OUTPUT_DIR
+    existing = []
+    for src in a.desk or []:
+        existing += desk.load_desk(src)
+    backup, skipped = desk.export(conn, existing, tuple(v.upper() for v in a.verdict.split(",")), a.limit)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = OUTPUT_DIR / f"prospecting-desk-import-{backup['at'][:10]}.json"
+    path.write_text(json.dumps(backup, indent=1), encoding="utf-8")
+    if not a.dry_run:
+        desk.mark_exported(conn, backup)
+    print(f"Wrote {len(backup['companies'])} researched prospects -> {path}")
+    print(f"Skipped {skipped} already in your Desk." if existing else
+          "Tip: pass --desk <your Desk backup.json> so companies already in the Desk are skipped.")
+    print("In Prospecting Desk: Settings > Restore from backup > pick this file. It adds them; nothing else changes.")
+
+
+def cmd_desk_import(conn, a):
+    from pipeline import desk
+    res = desk.import_desk(conn, desk.load_desk(a.backup))
+    apply_filters(conn)
+    print(f"{res['companies']} Desk companies: {res['matched']} matched pipeline leads, {res['added']} added as Desk-only.")
+    print(f"New touches: {res['touches']} · new outcomes: {res['outcomes'] or 'none'}")
+    print(forecast.render(forecast.plan(conn, load_policy())))
+
+
 def cmd_plan(conn, a):
     print(forecast.render(forecast.plan(conn, load_policy())))
 
@@ -274,6 +301,16 @@ def main(argv=None):
     s.add_argument("--no-research", action="store_true")
     s.add_argument("--unmatched", action="store_true", help="export companies with no website found (call list)")
     s.set_defaults(fn=cmd_discover)
+
+    s = sub.add_parser("desk-export", help="researched leads as a Prospecting Desk backup file (Restore from backup)")
+    s.add_argument("--desk", action="append", help="your Desk backup .json (or the app .zip) to skip companies you have")
+    s.add_argument("--verdict", default="GO,MAYBE"), s.add_argument("--limit", type=int)
+    s.add_argument("--dry-run", action="store_true", help="write the file but don't mark leads as sent")
+    s.set_defaults(fn=cmd_desk_export)
+
+    s = sub.add_parser("desk-import", help="read a Prospecting Desk backup: your calls and stages become outcomes")
+    s.add_argument("backup")
+    s.set_defaults(fn=cmd_desk_import)
 
     sub.add_parser("plan", help="customer plan: prospects needed for ~95% odds of a new customer, daily quota"
                    ).set_defaults(fn=cmd_plan)

@@ -23,6 +23,8 @@ ANGLES = [
 ]
 DEFAULT = (None, "pallets out of {city}", "getting pallets out the door on time takes more chasing than it should",
            "We cover truckload, partials, and LTL with 45+ LTL carriers.", "pallet loads")
+# CAN-SPAM: commercial email needs a valid postal address and a way to opt out. Same line as Prospecting Desk.
+OPT_OUT = "If you would rather not hear from me, reply and tell me, and I will not contact you again."
 BANNED = ["dedicated contact", "right in our wheelhouse", "hope this finds you well", "touching base",
           "circle back", "synergy", "you get me", "roi"]
 
@@ -60,8 +62,27 @@ def context(row):
     # Food/reefer companies mention "stainless steel" etc.; don't pitch them flatbeds.
     foodish = f.get("food_producer")
 
+    # Government industry code (EPA) beats website words: a trailer maker's site says "refrigerated"
+    # about its product, but its freight is flatbed/driveaway, not reefer loads.
+    naics = {k[6:] for k, v in f.items() if k.startswith("naics_") and v}
+    allowed = None
+    if naics:
+        allowed = set()
+        if "flatbed" in naics:
+            allowed |= {"flatbed_oversize", "cross_border", "distributor", "manufacturer"}
+        if "reefer" in naics:
+            allowed |= {"reefer", "retail_dealers", "cross_border", "distributor", "manufacturer"}
+        if "dryvan" in naics:
+            allowed |= {"retail_dealers", "cross_border", "distributor", "manufacturer"}
+
+    if naics:  # the industry code settles it; site words like "packing" don't make a trailer plant a food company
+        foodish = "reefer" in naics and "flatbed" not in naics
+
     def usable(a):
-        if not f.get(a[0]):
+        if not f.get(a[0]) and not (a[0] == "flatbed_oversize" and "flatbed" in naics) \
+                and not (a[0] == "reefer" and "reefer" in naics):
+            return False
+        if allowed is not None and a[0] not in allowed:
             return False
         if a[0] == "cross_border":
             return real_xborder
@@ -71,7 +92,9 @@ def context(row):
             return False  # e.g. precast plants with temperature-controlled curing
         return True
     _, subj, pain, capability, freight = next((a for a in ANGLES if usable(a)), DEFAULT)
-    locs = r.get("us_locations", []) + r.get("ca_locations", [])
+    meta = jload(row["meta"], {}) if "meta" in row.keys() else {}
+    # EPA plant addresses are where freight actually ships from; website addresses can be a head office.
+    locs = meta.get("plants", []) + r.get("us_locations", []) + r.get("ca_locations", [])
     city = ""
     if locs:
         c, _, rest = locs[0].partition(",")
@@ -118,7 +141,12 @@ def draft(row, phone="[Phone]", touch=1):
         warnings.append("No freight contact found on the site: fill in [First Name].")
     if touch > 1:
         warnings.append("Send as a reply in the same thread as your first email.")
-    return f"Subject: {subject}\n\n{greet}\n\n{text}\n\nWill\nTQL | {phone}", warnings
+    import os
+    address = os.environ.get("TQL_ADDRESS", "[Your TQL office address]")
+    if address.startswith("["):
+        warnings.append("Add your office postal address (set TQL_ADDRESS). Commercial email must include one.")
+    footer = f"Will\nTQL | {phone}\n{address}\n\n{OPT_OUT}"
+    return f"Subject: {subject}\n\n{greet}\n\n{text}\n\n{footer}", warnings
 
 
 def call_opener(row):

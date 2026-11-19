@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS prospects (
     last_outcome  TEXT,
     last_outcome_at TEXT,
     model_version INTEGER,
-    meta          TEXT                     -- json from discovery (EPA plants, NAICS, profile)
+    meta          TEXT,                    -- json from discovery (EPA plants, NAICS, profile)
+    desk_exported_at TEXT                  -- sent to Prospecting Desk (never sent twice)
 );
 CREATE TABLE IF NOT EXISTS discovered (
     key      TEXT PRIMARY KEY,             -- normalized company name

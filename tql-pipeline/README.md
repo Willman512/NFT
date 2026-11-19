@@ -20,7 +20,7 @@ python prospect.py email acme-steel.com --phone "(513) 555-0000"   # next email 
 python prospect.py outcome acme-steel.com contacted
 ```
 
-Set your phone once so every draft is signed: `export TQL_PHONE="(513) 555-0000"` (Windows: `set TQL_PHONE=...`).
+Set your phone and office address once so every draft is signed and compliant: `export TQL_PHONE="(513) 555-0000"` and `export TQL_ADDRESS="your office street, city, ST zip"` (Windows: `set ...`). Every email ends with your postal address and an opt-out line, which commercial email requires (CAN-SPAM), and uses the same opt-out wording as Prospecting Desk.
 
 Starter leads are in `leads/`. Load them with `python prospect.py add leads/seed-2026-11-19.csv leads/seed-2026-11-19-batch2.csv`, then run `cycle`.
 
@@ -50,6 +50,31 @@ No list can make a shipper say yes. What the pipeline *can* do is make the odds 
 - From that rate it works out how many prospects give a **95%** chance of at least one new customer: 149 at 2%, because 1 − 0.98¹⁴⁹ ≈ 95%.
 - It spreads that number over 20 working days. `today` sizes your list to that daily quota and shows how you're tracking.
 - If the queue is too short to hit the plan, it tells you to run `discover`.
+
+## Prospecting Desk bridge
+
+The pipeline finds and researches leads, and Prospecting Desk is where you work them.
+
+```bash
+python prospect.py desk-export --desk my-desk-backup.json   # new researched leads -> Desk backup file
+python prospect.py desk-import my-desk-backup.json          # your Desk calls and stages -> pipeline results
+```
+
+- **Export:** in the Desk, go to Settings > *Restore from backup* and pick the file. Each lead arrives as **Qualified** (GO) or **Researching** (MAYBE), with the CRM tag set to **Unchecked**, so it stays in *Need a CRM check* until you search TQL's CRM. Each lead also carries rubric ratings (industry growth is left for you), the reason to call now, freight modes, ranked contacts, an opener, questions and sources. Companies already in your Desk, matched by name, phone or website the same way the Desk does it, are skipped. A lead is never exported twice, so a restore can't overwrite your logged calls.
+- **Import:** turns your Desk work into pipeline results.
+  - Load booked or Active customer → `load_booked`
+  - Quote sent → `quote_requested`
+  - Meeting scheduled → `meeting`
+  - Interested, or a decision-maker conversation → `replied`
+  - Not interested → `not_interested`
+  - Disqualified → `bad_fit`
+  - Tagged in the CRM → `owned_by_other_rep`
+  - On your do-not-contact list → `do_not_contact`
+  - 3+ unanswered attempts → `no_response`
+  
+  Then `learn` and the customer plan run on your real numbers. Re-running the import is safe: it only applies what's new.
+
+Weekly loop: back up the Desk, run `desk-import`, then `discover`, then `cycle --learn`, then `desk-export`, then restore the file in the Desk.
 
 ## The daily loop
 

@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("TQL_ADDRESS", "123 Test St, Cincinnati, OH 45202")
 
 from pipeline import db  # noqa: E402
 from pipeline.config import load_icp, load_policy  # noqa: E402
@@ -278,3 +279,62 @@ class DiscoverTest(unittest.TestCase):
         self.assertEqual(res2["new"], 0)  # never re-adds a company it has seen
         conn.close()
         tmp.cleanup()
+
+
+class DeskBridgeTest(PipelineTest):
+    def test_export_shape_and_dedupe(self):
+        from pipeline import desk
+        existing = [{"type": "company", "id": "x1", "name": "Frost Farms Frozen Foods", "phone": "", "website": ""}]
+        backup, skipped = desk.export(self.conn, existing)
+        self.assertEqual(backup["app"], "prospecting-desk")
+        names = [c["name"] for c in backup["companies"]]
+        self.assertNotIn("Frost Farms Frozen Foods", names)   # already in the Desk
+        self.assertEqual(skipped, 1)
+        steel = next(c for c in backup["companies"] if "steelco" in c["website"])
+        self.assertEqual(steel["stage"], "qualified")
+        self.assertEqual(steel["tag"]["status"], "Unchecked")
+        self.assertIn("Flatbed", steel["freight"]["modes"])
+        self.assertTrue(all(1 <= v <= 5 for v in steel["ratings"].values()))
+        self.assertEqual(steel["contacts"][0]["name"], "Jane Doe")
+        desk.mark_exported(self.conn, backup)
+        again, _ = desk.export(self.conn, existing)
+        self.assertEqual(again["companies"], [])           # never sent twice
+
+    def test_import_outcomes(self):
+        from pipeline import desk
+        from pipeline.forecast import stats
+        companies = [
+            {"type": "company", "id": "a", "name": "SteelCo Fabrication", "website": "https://steelco.test", "stage": "customer",
+             "interactions": [{"kind": "Call", "outcome": "Load booked", "ts": "2026-11-01T10:00:00Z"}]},
+            {"type": "company", "id": "b", "name": "Desk Only Bakery", "website": "", "stage": "nurture",
+             "interactions": [{"kind": "Call", "outcome": "Not interested", "ts": "2026-11-02T10:00:00Z"}]},
+            {"type": "company", "id": "c", "name": "Tagged Co", "website": "", "stage": "qualified",
+             "tag": {"status": "Tagged"}, "interactions": []},
+        ]
+        res = desk.import_desk(self.conn, companies)
+        self.assertEqual(res["outcomes"], {"load_booked": 1, "not_interested": 1, "owned_by_other_rep": 1})
+        self.assertEqual(stats(self.conn)["wins"], 1)
+        self.assertEqual(desk.import_desk(self.conn, companies)["outcomes"], {})  # idempotent
+
+    def test_load_seed_zip_format(self):
+        from pipeline.desk import _from_seed
+        js = 'window.PC_SEED=[{"type":"company","id":"n1","name":"A"}];window.PC_LEGACY=[{"type":"company","id":"p1","name":"B"}];'
+        self.assertEqual([c["id"] for c in _from_seed(js)], ["n1", "p1"])
+
+
+class NaicsAngleTest(unittest.TestCase):
+    def test_industry_code_beats_site_words(self):
+        from pipeline.email import context
+        from pipeline.desk import _modes
+        row = {"research": json.dumps({"us_locations": ["Chicago, IL 60601"], "contacts": [], "signal_hits": {}}),
+               "features": json.dumps({"reefer": 1, "manufacturer": 1, "naics_flatbed": 1}),
+               "meta": json.dumps({"plants": ["Savannah, GA 31408"], "profile": ["flatbed"]}),
+               "name": "Great Dane", "domain": "gd.test"}
+
+        class R(dict):
+            def keys(self):
+                return super().keys()
+        c = context(R(row))
+        self.assertEqual(c["freight"], "flatbed loads")
+        self.assertEqual(c["city"], "Savannah, GA")
+        self.assertEqual(_modes({"reefer": 1, "naics_flatbed": 1}, {}), ["Flatbed"])
